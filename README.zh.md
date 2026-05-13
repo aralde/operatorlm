@@ -103,22 +103,7 @@
 
 ## 工作原理
 
-```
-                           ┌────────────────────────────────┐
-                           │      OperatorLM (local)        │
-                           │   127.0.0.1:11434  (~11 MB)    │
-                           │                                │
-   Cursor / Continue ──▶   │  ┌──────────────────────────┐  │  ──▶  OpenAI    (key #1, #2, #3)
-   OpenAI SDK / curl  ──▶  │  │  Router                  │  │  ──▶  OpenRouter (personal, work)
-   任何会说 OpenAI    ──▶  │  │  ├─ alias resolver       │  │  ──▶  Groq
-   API 的客户端            │  │  ├─ retry + jitter       │  │  ──▶  Google Gemini
-                           │  │  ├─ circuit breaker      │  │  ──▶  Azure OpenAI
-                           │  │  └─ RPM limiter          │  │  ──▶  ChatGPT Plus/Pro (OAuth)
-                           │  └──────────────────────────┘  │  ... 
-                           │  Keys ➜ OS Keyring             │ ──▶  LLM Providers
-                           │  Audit ➜ ~/.operatorlm/*.log   │
-                           └────────────────────────────────┘
-```
+![OperatorLM 请求流程](images/OperatorLM-flow.png)
 
 1. **接收** 一个发往 `127.0.0.1:11434` 的 OpenAI 格式请求。
 2. **解析** `model` 字段 → 要么按前缀匹配(`openai/gpt-4o`、`groq/llama-3.3-70b-versatile`),要么命中用户定义的 **alias**,后者会扇出到多个账号 / provider。

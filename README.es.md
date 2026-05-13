@@ -103,22 +103,7 @@ Cualquier cliente compatible con OpenAI funciona — pon como base URL `http://1
 
 ## Cómo funciona
 
-```
-                           ┌────────────────────────────────┐
-                           │      OperatorLM (local)        │
-                           │   127.0.0.1:11434  (~11 MB)    │
-                           │                                │
-   Cursor / Continue ──▶   │  ┌──────────────────────────┐  │  ──▶  OpenAI    (key #1, #2, #3)
-   OpenAI SDK / curl  ──▶  │  │  Router                  │  │  ──▶  OpenRouter (personal, work)
-   Cualquier cosa     ──▶  │  │  ├─ alias resolver       │  │  ──▶  Groq
-   que hable OpenAI       │  │  ├─ retry + jitter       │  │  ──▶  Google Gemini
-                           │  │  ├─ circuit breaker      │  │  ──▶  Azure OpenAI
-                           │  │  └─ RPM limiter          │  │  ──▶  ChatGPT Plus/Pro (OAuth)
-                           │  └──────────────────────────┘  │  ... 
-                           │  Keys ➜ OS Keyring             │ ──▶  LLM Providers
-                           │  Audit ➜ ~/.operatorlm/*.log   │
-                           └────────────────────────────────┘
-```
+![Flujo de requests de OperatorLM](images/OperatorLM-flow.png)
 
 1. **Recibe** un request en formato OpenAI en `127.0.0.1:11434`.
 2. **Resuelve** el campo `model` → o por match de prefijo (`openai/gpt-4o`, `groq/llama-3.3-70b-versatile`) o por un **alias** definido por el usuario que se reparte entre varias cuentas/providers.

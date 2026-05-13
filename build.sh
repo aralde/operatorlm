@@ -17,12 +17,14 @@ cd "$(dirname "$0")"
 target_os="${GOOS:-$(go env GOOS)}"
 target_arch="${GOARCH:-$(go env GOARCH)}"
 
-ldflags=""
+# -s -w: strip symbol/debug info (smaller binary, fewer AV false positives on
+# Windows). Applied on every OS — debug symbols aren't needed for releases.
+ldflags="-s -w"
 output="operatorlm"
 
 case "$target_os" in
   windows)
-    ldflags="-H=windowsgui"
+    ldflags="-H=windowsgui $ldflags"
     output="OperatorLM.exe"
     ;;
   linux|darwin)
@@ -52,10 +54,13 @@ export CGO_ENABLED="${CGO_ENABLED:-1}"
 
 echo "Building $output for $target_os/$target_arch (CGO_ENABLED=$CGO_ENABLED, version=${version:-dev})"
 
+# -trimpath / -buildvcs=false: strip local paths and VCS stamps so the binary
+# is reproducible and doesn't leak $HOME — also reduces SmartScreen/Defender
+# false positives on fresh Go binaries.
 if [ -n "$ldflags" ]; then
-  GOOS="$target_os" GOARCH="$target_arch" go build -ldflags="$ldflags" -o "$output" .
+  GOOS="$target_os" GOARCH="$target_arch" go build -trimpath -buildvcs=false -ldflags="$ldflags" -o "$output" .
 else
-  GOOS="$target_os" GOARCH="$target_arch" go build -o "$output" .
+  GOOS="$target_os" GOARCH="$target_arch" go build -trimpath -buildvcs=false -o "$output" .
 fi
 
 echo "Built $output"

@@ -26,8 +26,13 @@ try {
   if ($Version) {
     $verFlag = " -X github.com/aralde/operatorlm/internal/version.Version=$Version"
   }
-  $ldflags = "-H=windowsgui$verFlag"
-  go build -ldflags="$ldflags" -o OperatorLM.exe .
+  # -s -w: strip symbol/debug info (smaller binary, fewer AV false positives).
+  # -H=windowsgui: GUI subsystem, no console window on launch.
+  # -trimpath / -buildvcs=false: strip local paths and VCS stamps so the binary
+  #   is reproducible and doesn't leak C:\Users\... — also reduces SmartScreen
+  #   / Defender false positives on fresh Go binaries.
+  $ldflags = "-H=windowsgui -s -w$verFlag"
+  go build -trimpath -buildvcs=false -ldflags="$ldflags" -o OperatorLM.exe .
   if ($Version) {
     Write-Host "Built OperatorLM.exe (windowsgui mode, version=$Version)" -ForegroundColor Green
   } else {
