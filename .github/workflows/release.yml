@@ -22,10 +22,13 @@ jobs:
             goos: darwin
             goarch: arm64
             output: OperatorLM-darwin-arm64
-          - os: macos-13          # Intel runner
-            goos: darwin
-            goarch: amd64
-            output: OperatorLM-darwin-amd64
+          # Intel Mac (darwin/amd64): skip until the repo is public or
+          # GitHub's macos-13 runner queue improves — private repos get very
+          # slow scheduling (20+ min waits). Reactivate by uncommenting:
+          # - os: macos-13
+          #   goos: darwin
+          #   goarch: amd64
+          #   output: OperatorLM-darwin-amd64
           - os: ubuntu-latest
             goos: linux
             goarch: amd64
