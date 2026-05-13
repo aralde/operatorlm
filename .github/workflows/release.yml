@@ -1,0 +1,96 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write  # required so the release job can upload assets
+
+jobs:
+  build:
+    name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            goos: windows
+            goarch: amd64
+            output: OperatorLM-windows-amd64.exe
+          - os: macos-14          # Apple Silicon runner
+            goos: darwin
+            goarch: arm64
+            output: OperatorLM-darwin-arm64
+          - os: macos-13          # Intel runner
+            goos: darwin
+            goarch: amd64
+            output: OperatorLM-darwin-amd64
+          - os: ubuntu-latest
+            goos: linux
+            goarch: amd64
+            output: OperatorLM-linux-amd64
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # need full history so `git describe` works inside build.sh
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+
+      - name: Install Linux deps (GTK + AppIndicator for systray)
+        if: matrix.goos == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc libgtk-3-dev libayatana-appindicator3-dev
+
+      - name: Build (Unix)
+        if: matrix.goos != 'windows'
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          VERSION: ${{ github.ref_name }}
+        run: |
+          chmod +x build.sh
+          ./build.sh
+          mv operatorlm "${{ matrix.output }}"
+
+      - name: Build (Windows)
+        if: matrix.goos == 'windows'
+        shell: pwsh
+        run: |
+          .\build.ps1 -Version "${{ github.ref_name }}"
+          Move-Item OperatorLM.exe "${{ matrix.output }}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.output }}
+          path: ${{ matrix.output }}
+          retention-days: 7
+
+  release:
+    name: Publish release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Generate checksums.txt
+        working-directory: dist
+        run: |
+          sha256sum OperatorLM-* > checksums.txt
+          cat checksums.txt
+
+      - name: Upload assets to the GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ github.ref_name }}" dist/* --clobber --repo "${{ github.repository }}"
