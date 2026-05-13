@@ -56,7 +56,7 @@
 
 ## Demo
 
-![OperatorLM Demo](images/OperatorLM-demo.gif)
+![OperatorLM Demo](images/demo.gif)
 
 ## 目录
 
@@ -103,7 +103,7 @@
 
 ## 工作原理
 
-![OperatorLM 请求流程](images/OperatorLM-flow.png)
+![OperatorLM 请求流程](images/flow.png)
 
 1. **接收** 一个发往 `127.0.0.1:11434` 的 OpenAI 格式请求。
 2. **解析** `model` 字段 → 要么按前缀匹配(`openai/gpt-4o`、`groq/llama-3.3-70b-versatile`),要么命中用户定义的 **alias**,后者会扇出到多个账号 / provider。

@@ -56,7 +56,7 @@ Cualquier cliente compatible con OpenAI funciona — pon como base URL `http://1
 
 ## Demo
 
-![OperatorLM Demo](images/OperatorLM-demo.gif)
+![OperatorLM Demo](images/demo.gif)
 
 ## Tabla de contenidos
 
@@ -103,7 +103,7 @@ Cualquier cliente compatible con OpenAI funciona — pon como base URL `http://1
 
 ## Cómo funciona
 
-![Flujo de requests de OperatorLM](images/OperatorLM-flow.png)
+![Flujo de requests de OperatorLM](images/flow.png)
 
 1. **Recibe** un request en formato OpenAI en `127.0.0.1:11434`.
 2. **Resuelve** el campo `model` → o por match de prefijo (`openai/gpt-4o`, `groq/llama-3.3-70b-versatile`) o por un **alias** definido por el usuario que se reparte entre varias cuentas/providers.

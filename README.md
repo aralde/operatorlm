@@ -56,7 +56,7 @@ Any OpenAI-compatible client works — set the base URL to `http://127.0.0.1:114
 
 ## Demo
 
-![OperatorLM Demo](images/OperatorLM-demo.gif)
+![OperatorLM Demo](images/demo.gif)
 
 ## Table of Contents
 
@@ -103,7 +103,7 @@ Any OpenAI-compatible client works — set the base URL to `http://127.0.0.1:114
 
 ## How it works
 
-![OperatorLM request flow](images/OperatorLM-flow.png)
+![OperatorLM request flow](images/flow.png)
 
 1. **Receive** an OpenAI-format request on `127.0.0.1:11434`.
 2. **Resolve** the `model` field → either a prefix match (`openai/gpt-4o`, `groq/llama-3.3-70b-versatile`) or a user-defined **alias** that fans out across multiple accounts/providers.
