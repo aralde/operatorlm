@@ -1,0 +1,44 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool, specifically when used with LiteIDE
+*.out
+
+# Dependency directories
+# vendor/
+
+# OS / IDE specific files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Build artifacts
+operatorlm
+operatorlm-*
+OperatorLM.exe
+
+# Project specific — personal / drafts
+.local/
+.claude/
+.private/
+*.draft
+*.draft.*
+
+# Logs / audit
+*.log
+audit.jsonl
+audit.log
+
+# Test / scratch
+req.json
+response.txt
+*.tmp
+*.bak
