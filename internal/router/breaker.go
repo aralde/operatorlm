@@ -133,8 +133,9 @@ func (b *Breaker) Record(id string, class ErrorClass, errMsg string) {
 		st.lastError = ""
 		return
 	}
-	if class == ClassClient {
-		// Don't trip circuit; the user's request is invalid, the target is fine.
+	if class == ClassClient || class == ClassClientFailover {
+		// Don't trip circuit; the user's request is invalid (or shape-incompatible
+		// with this target), the upstream itself is fine.
 		return
 	}
 
