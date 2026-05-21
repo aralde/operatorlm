@@ -20,6 +20,10 @@ type Attempt struct {
 	AliasName     string          // empty if direct slug routing; alias name otherwise
 	TargetIdx     int             // index of target within alias (for ratelimit/breaker ID)
 	RPM           int             // 0 means no limit
+	// MaxOutputTokens, when > 0, caps the request body's max_tokens fields
+	// for this attempt. Populated from AliasTarget.MaxOutputTokens; 0 for
+	// direct slug routing.
+	MaxOutputTokens int
 }
 
 // ID is a stable identifier used as key in breaker / rate-limit maps.
@@ -150,13 +154,14 @@ func (r *Router) resolveAlias(a config.Alias) ([]Attempt, error) {
 			keyName = "default"
 		}
 		out = append(out, Attempt{
-			Provider:      p,
-			KeyRef:        keyRef,
-			KeyName:       keyName,
-			UpstreamModel: t.UpstreamModel,
-			AliasName:     a.Name,
-			TargetIdx:     w.idx,
-			RPM:           t.RPM,
+			Provider:        p,
+			KeyRef:          keyRef,
+			KeyName:         keyName,
+			UpstreamModel:   t.UpstreamModel,
+			AliasName:       a.Name,
+			TargetIdx:       w.idx,
+			RPM:             t.RPM,
+			MaxOutputTokens: t.MaxOutputTokens,
 		})
 	}
 	_ = rand.Intn

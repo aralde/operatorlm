@@ -484,6 +484,7 @@ function addTargetRow(t = {}) {
     <td><select class="t-model"></select></td>
     <td><input class="t-order" type="number" min="0" value="${t.order ?? 1}" style="width:5rem" /></td>
     <td><input class="t-rpm"   type="number" min="0" value="${t.rpm   ?? 0}" style="width:5rem" /></td>
+    <td><input class="t-maxout" type="number" min="0" value="${t.max_output_tokens ?? 0}" style="width:6rem" title="Clamp max_tokens / max_completion_tokens to this value. 0 = no clamp." /></td>
     <td><button type="button" class="danger t-del">✕</button></td>`;
   targetsTbody.appendChild(tr);
 
@@ -543,11 +544,12 @@ aliasForm.addEventListener('submit', async e => {
   e.preventDefault();
   const fd = new FormData(aliasForm);
   const targets = $$('#targets-table tbody tr').map(tr => ({
-    provider:       $('.t-provider', tr).value,
-    key:            $('.t-key',      tr).value,
-    upstream_model: $('.t-model',    tr).value,
-    order:          Number($('.t-order', tr).value) || 0,
-    rpm:            Number($('.t-rpm',   tr).value) || 0,
+    provider:          $('.t-provider', tr).value,
+    key:               $('.t-key',      tr).value,
+    upstream_model:    $('.t-model',    tr).value,
+    order:             Number($('.t-order',  tr).value) || 0,
+    rpm:               Number($('.t-rpm',    tr).value) || 0,
+    max_output_tokens: Number($('.t-maxout', tr).value) || 0,
   })).filter(t => t.upstream_model);
   if (!targets.length) {
     toast('Add at least one target with a model selected.', 'warning');
@@ -1323,11 +1325,12 @@ async function loadAll() {
     name:     a.name,
     strategy: a.strategy,
     targets:  (a.targets || []).map(t => ({
-      provider:       t.provider,
-      key:            t.key,
-      upstream_model: t.upstream_model,
-      order:          t.order,
-      rpm:            t.rpm,
+      provider:          t.provider,
+      key:               t.key,
+      upstream_model:    t.upstream_model,
+      order:             t.order,
+      rpm:               t.rpm,
+      max_output_tokens: t.max_output_tokens,
     })),
   }));
   render();

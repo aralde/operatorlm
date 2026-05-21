@@ -259,7 +259,11 @@ func (s *Server) runOnce(
 		defer cancel()
 	}
 
-	req, err := prov.BuildRequest(attemptCtx, kind, body, att, stream)
+	effectiveBody := body
+	if att.MaxOutputTokens > 0 {
+		effectiveBody = providers.ClampOutputTokens(body, att.MaxOutputTokens)
+	}
+	req, err := prov.BuildRequest(attemptCtx, kind, effectiveBody, att, stream)
 	if err != nil {
 		return http.StatusInternalServerError, []byte(err.Error()), router.ClassClient, nil, false
 	}
@@ -285,8 +289,14 @@ func (s *Server) runOnce(
 
 	log.Printf("dispatch attempt=%s status=%d class=%s", att.ID(), resp.StatusCode, class)
 	if resp.StatusCode >= 400 {
-		// Non-retryable client error: forward as-is.
+		// Read body once: we may either forward it (true client error) or
+		// reclassify it as "try the next target" if it's a token-limit /
+		// context-window rejection.
 		b, _ := io.ReadAll(resp.Body)
+		if router.IsTokenLimitRejection(resp.StatusCode, b) {
+			log.Printf("dispatch attempt=%s status=%d reclassified as client_failover", att.ID(), resp.StatusCode)
+			return resp.StatusCode, b, router.ClassClientFailover, upstream, false
+		}
 		http.Error(w, string(b), resp.StatusCode)
 		return resp.StatusCode, b, class, upstream, true
 	}

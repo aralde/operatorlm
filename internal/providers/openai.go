@@ -88,6 +88,58 @@ func (o *openAILike) WriteResponse(w http.ResponseWriter, resp *http.Response, _
 	}
 }
 
+// ClampOutputTokens caps any of max_tokens / max_completion_tokens /
+// max_output_tokens in the request body to `max`. No-op when max <= 0 or
+// the field is absent / already below the cap. Returns the original bytes
+// on parse failure so we never break a request just to clamp it.
+func ClampOutputTokens(body []byte, max int) []byte {
+	if max <= 0 {
+		return body
+	}
+	var m map[string]any
+	if err := json.Unmarshal(body, &m); err != nil {
+		return body
+	}
+	changed := false
+	for _, k := range []string{"max_tokens", "max_completion_tokens", "max_output_tokens"} {
+		v, ok := m[k]
+		if !ok {
+			continue
+		}
+		n, ok := numericTokens(v)
+		if !ok {
+			continue
+		}
+		if n > max {
+			m[k] = max
+			changed = true
+		}
+	}
+	if !changed {
+		return body
+	}
+	out, err := json.Marshal(m)
+	if err != nil {
+		return body
+	}
+	return out
+}
+
+func numericTokens(v any) (int, bool) {
+	switch t := v.(type) {
+	case float64:
+		return int(t), true
+	case int:
+		return t, true
+	case json.Number:
+		n, err := t.Int64()
+		if err == nil {
+			return int(n), true
+		}
+	}
+	return 0, false
+}
+
 func rewriteModel(body []byte, model string) []byte {
 	var m map[string]any
 	if err := json.Unmarshal(body, &m); err != nil {

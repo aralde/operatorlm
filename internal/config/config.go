@@ -50,6 +50,11 @@ type AliasTarget struct {
 	UpstreamModel string `toml:"upstream_model"    json:"upstream_model"`
 	Order         int    `toml:"order"             json:"order"`
 	RPM           int    `toml:"rpm,omitempty"     json:"rpm,omitempty"`
+	// MaxOutputTokens, when > 0, clamps the request body's max_tokens /
+	// max_completion_tokens / max_output_tokens to this value before sending
+	// upstream. Use it to respect per-model output caps (e.g. Groq's
+	// Llama-4-Scout: 8192) so clients that send larger values don't get 400s.
+	MaxOutputTokens int `toml:"max_output_tokens,omitempty" json:"max_output_tokens,omitempty"`
 }
 
 type Alias struct {

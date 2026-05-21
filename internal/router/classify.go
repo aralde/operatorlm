@@ -16,11 +16,15 @@ import (
 type ErrorClass int
 
 const (
-	ClassOK           ErrorClass = iota // 2xx
-	ClassClient                         // 4xx (non-retryable: 400/401/403/404/422/...)
-	ClassRateLimit                      // 429 + 408/425
-	ClassServer                         // 5xx
-	ClassNetwork                        // dial errors, TLS errors, EOF, context deadline
+	ClassOK             ErrorClass = iota // 2xx
+	ClassClient                           // 4xx (non-retryable: 400/401/403/404/422/...)
+	ClassRateLimit                        // 429 + 408/425
+	ClassServer                           // 5xx
+	ClassNetwork                          // dial errors, TLS errors, EOF, context deadline
+	ClassClientFailover                   // 4xx whose payload signals "try a different target"
+	//                                       (e.g. token-limit / context-window rejections).
+	//                                       Not retryable on the same target, but the
+	//                                       alias loop should advance to the next attempt.
 )
 
 func (c ErrorClass) String() string {
@@ -35,8 +39,49 @@ func (c ErrorClass) String() string {
 		return "server"
 	case ClassNetwork:
 		return "network"
+	case ClassClientFailover:
+		return "client_failover"
 	}
 	return "unknown"
+}
+
+// IsTokenLimitRejection inspects an upstream 4xx body and reports whether the
+// rejection is about a request-shape parameter that would succeed on a
+// different target — typically max_tokens / max_completion_tokens /
+// max_output_tokens exceeding the model's cap, or the prompt exceeding the
+// context window. Designed to be tolerant of provider-specific shapes:
+// OpenAI-compatible providers (Groq, DeepSeek, xAI, Mistral, NVIDIA NIM,
+// OpenRouter, Azure) all surface either an `error.param` field or a message
+// containing the offending parameter name / "context window" phrasing.
+func IsTokenLimitRejection(status int, body []byte) bool {
+	if status < 400 || status >= 500 {
+		return false
+	}
+	if len(body) == 0 {
+		return false
+	}
+	lower := strings.ToLower(string(body))
+	tokens := []string{
+		`"param":"max_completion_tokens"`,
+		`"param":"max_tokens"`,
+		`"param":"max_output_tokens"`,
+		`"param": "max_completion_tokens"`,
+		`"param": "max_tokens"`,
+		`"param": "max_output_tokens"`,
+		"context_length_exceeded",
+		"context window",
+		"context_window",
+		"maximum context length",
+		"maximum value for `max_completion_tokens`",
+		"maximum value for `max_tokens`",
+		"maximum value for `max_output_tokens`",
+	}
+	for _, needle := range tokens {
+		if strings.Contains(lower, needle) {
+			return true
+		}
+	}
+	return false
 }
 
 // Retryable returns true when this class warrants a retry on the same target.
