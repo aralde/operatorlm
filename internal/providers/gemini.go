@@ -34,16 +34,25 @@ type oaiMessage struct {
 }
 
 type oaiChatReq struct {
-	Model       string       `json:"model"`
-	Messages    []oaiMessage `json:"messages"`
-	Stream      bool         `json:"stream,omitempty"`
-	Temperature *float64     `json:"temperature,omitempty"`
-	TopP        *float64     `json:"top_p,omitempty"`
-	MaxTokens   *int         `json:"max_tokens,omitempty"`
+	Model           string          `json:"model"`
+	Messages        []oaiMessage    `json:"messages"`
+	Stream          bool            `json:"stream,omitempty"`
+	Temperature     *float64        `json:"temperature,omitempty"`
+	TopP            *float64        `json:"top_p,omitempty"`
+	MaxTokens       *int            `json:"max_tokens,omitempty"`
+	ReasoningEffort string          `json:"reasoning_effort,omitempty"`
+	Reasoning       *oaiReasoning   `json:"reasoning,omitempty"`
+}
+
+type oaiReasoning struct {
+	Effort    string `json:"effort,omitempty"`
+	MaxTokens *int   `json:"max_tokens,omitempty"`
+	Exclude   *bool  `json:"exclude,omitempty"`
 }
 
 type gemPart struct {
-	Text string `json:"text"`
+	Text    string `json:"text"`
+	Thought bool   `json:"thought,omitempty"`
 }
 
 type gemContent struct {
@@ -51,10 +60,16 @@ type gemContent struct {
 	Parts []gemPart `json:"parts"`
 }
 
+type gemThinkingConfig struct {
+	IncludeThoughts bool `json:"includeThoughts,omitempty"`
+	ThinkingBudget  *int `json:"thinkingBudget,omitempty"`
+}
+
 type gemGenerationConfig struct {
-	Temperature     *float64 `json:"temperature,omitempty"`
-	TopP            *float64 `json:"topP,omitempty"`
-	MaxOutputTokens *int     `json:"maxOutputTokens,omitempty"`
+	Temperature     *float64           `json:"temperature,omitempty"`
+	TopP            *float64           `json:"topP,omitempty"`
+	MaxOutputTokens *int               `json:"maxOutputTokens,omitempty"`
+	ThinkingConfig  *gemThinkingConfig `json:"thinkingConfig,omitempty"`
 }
 
 type gemReq struct {
@@ -178,14 +193,68 @@ func translateOAItoGemini(req *oaiChatReq) *gemReq {
 		}
 		out.Contents = append(out.Contents, gemContent{Role: role, Parts: []gemPart{{Text: text}}})
 	}
-	if req.Temperature != nil || req.TopP != nil || req.MaxTokens != nil {
+
+	thinking := buildGeminiThinkingConfig(req)
+	if req.Temperature != nil || req.TopP != nil || req.MaxTokens != nil || thinking != nil {
 		out.GenerationConfig = &gemGenerationConfig{
 			Temperature:     req.Temperature,
 			TopP:            req.TopP,
 			MaxOutputTokens: req.MaxTokens,
+			ThinkingConfig:  thinking,
 		}
 	}
 	return out
+}
+
+// buildGeminiThinkingConfig maps OpenAI/OpenRouter-style reasoning hints onto
+// Gemini's generationConfig.thinkingConfig. Returns nil when the caller did
+// not request thinking — letting Gemini apply its per-model default.
+//
+// Mapping:
+//   - reasoning_effort / reasoning.effort: "none"→budget 0 (off);
+//     "low"→1024, "medium"→8192, "high"→24576; unknown values fall back to
+//     includeThoughts only.
+//   - reasoning.max_tokens: used verbatim as thinkingBudget when present
+//     (overrides the effort-derived value).
+//   - reasoning.exclude=true: budget still applied but includeThoughts=false
+//     so the model thinks silently.
+func buildGeminiThinkingConfig(req *oaiChatReq) *gemThinkingConfig {
+	effort := strings.ToLower(strings.TrimSpace(req.ReasoningEffort))
+	var maxTokens *int
+	exclude := false
+	if req.Reasoning != nil {
+		if effort == "" {
+			effort = strings.ToLower(strings.TrimSpace(req.Reasoning.Effort))
+		}
+		maxTokens = req.Reasoning.MaxTokens
+		if req.Reasoning.Exclude != nil {
+			exclude = *req.Reasoning.Exclude
+		}
+	}
+	if effort == "" && maxTokens == nil {
+		return nil
+	}
+
+	cfg := &gemThinkingConfig{IncludeThoughts: !exclude}
+	switch effort {
+	case "none", "off", "disabled":
+		zero := 0
+		cfg.ThinkingBudget = &zero
+		cfg.IncludeThoughts = false
+	case "low":
+		b := 1024
+		cfg.ThinkingBudget = &b
+	case "medium":
+		b := 8192
+		cfg.ThinkingBudget = &b
+	case "high":
+		b := 24576
+		cfg.ThinkingBudget = &b
+	}
+	if maxTokens != nil {
+		cfg.ThinkingBudget = maxTokens
+	}
+	return cfg
 }
 
 func contentToString(c any) string {
@@ -207,12 +276,16 @@ func contentToString(c any) string {
 }
 
 func translateGemToOAI(g *gemResp, model string, streaming bool) map[string]any {
-	var content string
+	var content, reasoning string
 	finish := ""
 	if len(g.Candidates) > 0 {
 		c := g.Candidates[0]
 		for _, p := range c.Content.Parts {
-			content += p.Text
+			if p.Thought {
+				reasoning += p.Text
+			} else {
+				content += p.Text
+			}
 		}
 		finish = strings.ToLower(c.FinishReason)
 	}
@@ -224,12 +297,20 @@ func translateGemToOAI(g *gemResp, model string, streaming bool) map[string]any 
 		objectKind = "chat.completion.chunk"
 	}
 
+	payload := map[string]any{
+		"role":    "assistant",
+		"content": content,
+	}
+	if reasoning != "" {
+		// Use reasoning_content — the de-facto field used by DeepSeek, xAI Grok,
+		// Mistral, NVIDIA NIM. Mirror it under reasoning too so OpenRouter-style
+		// clients pick it up without changes.
+		payload["reasoning_content"] = reasoning
+		payload["reasoning"] = reasoning
+	}
 	choice := map[string]any{
-		"index": 0,
-		choiceKey: map[string]any{
-			"role":    "assistant",
-			"content": content,
-		},
+		"index":    0,
+		choiceKey: payload,
 	}
 	if finish != "" && finish != "finish_reason_unspecified" {
 		choice["finish_reason"] = mapFinishReason(finish)
