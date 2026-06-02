@@ -34,6 +34,8 @@ func (o *openAILike) BuildRequest(ctx context.Context, kind Kind, body []byte, a
 		path = "/images/generations"
 	case KindResponses:
 		path = "/responses"
+	case KindEmbeddings:
+		path = "/embeddings"
 	}
 	url := strings.TrimRight(o.cfg.BaseURL, "/") + path
 
@@ -59,7 +61,7 @@ func (o *openAILike) BuildRequest(ctx context.Context, kind Kind, body []byte, a
 	return req, nil
 }
 
-func (o *openAILike) WriteResponse(w http.ResponseWriter, resp *http.Response, _ string, _ bool) error {
+func (o *openAILike) WriteResponse(w http.ResponseWriter, resp *http.Response, _ Kind, _ string, _ bool) error {
 	for k, vv := range resp.Header {
 		for _, v := range vv {
 			w.Header().Add(k, v)

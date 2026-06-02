@@ -34,8 +34,15 @@ func (c *chatgptCodex) Prefix() string   { return c.cfg.Prefix }
 func (c *chatgptCodex) Models() []string { return c.cfg.Models }
 
 func (c *chatgptCodex) BuildRequest(ctx context.Context, kind Kind, body []byte, att router.Attempt, _ bool) (*http.Request, error) {
-	if kind != KindResponses {
-		return nil, fmt.Errorf("chatgpt-codex only supports the /v1/responses endpoint")
+	switch kind {
+	case KindResponses:
+		// body is already in Responses shape.
+	case KindChat:
+		// Translate chat/completions into a Responses body; transformCodexBody
+		// below then applies the codex-endpoint constraints.
+		body = chatToResponsesBody(body)
+	default:
+		return nil, fmt.Errorf("chatgpt-codex only supports the /v1/chat/completions and /v1/responses endpoints")
 	}
 
 	tokens, err := c.loadTokens(att.KeyRef)
@@ -74,7 +81,10 @@ func (c *chatgptCodex) BuildRequest(ctx context.Context, kind Kind, body []byte,
 	return req, nil
 }
 
-func (c *chatgptCodex) WriteResponse(w http.ResponseWriter, resp *http.Response, _ string, _ bool) error {
+func (c *chatgptCodex) WriteResponse(w http.ResponseWriter, resp *http.Response, kind Kind, model string, stream bool) error {
+	if kind == KindChat {
+		return writeCodexChatResponse(w, resp, model, stream)
+	}
 	for k, vv := range resp.Header {
 		for _, v := range vv {
 			w.Header().Add(k, v)

@@ -301,7 +301,7 @@ func (s *Server) runOnce(
 		return resp.StatusCode, b, class, upstream, true
 	}
 
-	if writeErr := prov.WriteResponse(w, resp, att.UpstreamModel, stream); writeErr != nil {
+	if writeErr := prov.WriteResponse(w, resp, kind, att.UpstreamModel, stream); writeErr != nil {
 		log.Printf("dispatch attempt=%s write error: %v", att.ID(), writeErr)
 	}
 	return resp.StatusCode, nil, router.ClassOK, upstream, true
