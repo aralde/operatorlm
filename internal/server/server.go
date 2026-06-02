@@ -60,7 +60,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/v1/chat/completions", s.handleChat)
 	mux.HandleFunc("/v1/images/generations", s.handleImages)
 	mux.HandleFunc("/v1/responses", s.handleResponses)
+	mux.HandleFunc("/v1/embeddings", s.handleEmbeddings)
 	mux.HandleFunc("/v1/models", s.handleModels)
+	mux.HandleFunc("/v1/messages", s.handleMessages)
+	mux.HandleFunc("/health", s.handleHealthGlobal)
 
 	mux.HandleFunc("/admin/providers", s.handleProviders)
 	mux.HandleFunc("/admin/providers/probe", s.handleProbe)
@@ -93,11 +96,14 @@ func (s *Server) Handler() http.Handler {
 	v1Handler := corsMW.Handler(inner)
 
 	// Top-level dispatch:
+	//  - /health  : Public health check, no CORS or local auth.
 	//  - /v1/*    : CORS applied (legitimate cross-origin clients like editors/IDEs).
 	//  - /admin/* : NO CORS, plus Host-header validation against DNS-rebinding.
 	//  - other    : static admin UI; no CORS, but X-Frame-Options to block iframes.
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
+		case r.URL.Path == "/health":
+			mux.ServeHTTP(w, r)
 		case strings.HasPrefix(r.URL.Path, "/v1/"):
 			v1Handler.ServeHTTP(w, r)
 		case strings.HasPrefix(r.URL.Path, "/admin/"):

@@ -41,6 +41,8 @@ func (a *azureOpenAI) BuildRequest(ctx context.Context, kind Kind, body []byte, 
 		suffix = "/images/generations"
 	case KindResponses:
 		suffix = "/responses"
+	case KindEmbeddings:
+		suffix = "/embeddings"
 	default:
 		suffix = "/chat/completions"
 	}

@@ -13,6 +13,7 @@ const (
 	KindChat Kind = iota
 	KindImages
 	KindResponses
+	KindEmbeddings
 )
 
 // Provider builds upstream HTTP requests and writes their responses to a client,
@@ -29,5 +30,5 @@ type Provider interface {
 
 	// WriteResponse forwards the upstream response to the client, translating
 	// to OpenAI shape if necessary. Called only once a non-retryable status is observed.
-	WriteResponse(w http.ResponseWriter, resp *http.Response, model string, stream bool) error
+	WriteResponse(w http.ResponseWriter, resp *http.Response, kind Kind, model string, stream bool) error
 }

@@ -88,6 +88,9 @@ type gemResp struct {
 }
 
 func (g *gemini) BuildRequest(ctx context.Context, kind Kind, body []byte, att router.Attempt, stream bool) (*http.Request, error) {
+	if kind == KindEmbeddings {
+		return g.buildEmbeddingsRequest(ctx, body, att)
+	}
 	if kind == KindImages {
 		return nil, fmt.Errorf("image generation not implemented for gemini")
 	}
@@ -127,7 +130,104 @@ func (g *gemini) BuildRequest(ctx context.Context, kind Kind, body []byte, att r
 	return upstream, nil
 }
 
-func (g *gemini) WriteResponse(w http.ResponseWriter, resp *http.Response, model string, stream bool) error {
+type gemEmbedReq struct {
+	Model   string     `json:"model"`
+	Content gemContent `json:"content"`
+}
+
+type gemBatchEmbedReq struct {
+	Requests []gemEmbedReq `json:"requests"`
+}
+
+func (g *gemini) buildEmbeddingsRequest(ctx context.Context, body []byte, att router.Attempt) (*http.Request, error) {
+	var oaiReq struct {
+		Input any `json:"input"`
+	}
+	if err := json.Unmarshal(body, &oaiReq); err != nil {
+		return nil, fmt.Errorf("invalid json: %w", err)
+	}
+
+	apiKey, err := config.GetSecret(att.KeyRef)
+	if err != nil {
+		return nil, fmt.Errorf("missing api key %q: %w", att.KeyRef, err)
+	}
+
+	var gBody []byte
+	var method string
+
+	modelName := att.UpstreamModel
+	if !strings.HasPrefix(modelName, "models/") {
+		modelName = "models/" + modelName
+	}
+
+	switch v := oaiReq.Input.(type) {
+	case string:
+		method = "embedContent"
+		reqPayload := gemEmbedReq{
+			Model: modelName,
+			Content: gemContent{
+				Parts: []gemPart{{Text: v}},
+			},
+		}
+		gBody, err = json.Marshal(reqPayload)
+		if err != nil {
+			return nil, err
+		}
+	case []any:
+		method = "batchEmbedContents"
+		var reqs []gemEmbedReq
+		for _, item := range v {
+			str, ok := item.(string)
+			if !ok {
+				return nil, fmt.Errorf("gemini provider only supports text input for embeddings (got %T)", item)
+			}
+			reqs = append(reqs, gemEmbedReq{
+				Model: modelName,
+				Content: gemContent{
+					Parts: []gemPart{{Text: str}},
+				},
+			})
+		}
+		reqPayload := gemBatchEmbedReq{Requests: reqs}
+		gBody, err = json.Marshal(reqPayload)
+		if err != nil {
+			return nil, err
+		}
+	default:
+		return nil, fmt.Errorf("gemini provider only supports text input (string or array of strings) for embeddings")
+	}
+
+	url := fmt.Sprintf("%s/%s:%s?key=%s",
+		strings.TrimRight(g.cfg.BaseURL, "/"), modelName, method, apiKey)
+
+	upstream, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(gBody))
+	if err != nil {
+		return nil, err
+	}
+	upstream.Header.Set("Content-Type", "application/json")
+	return upstream, nil
+}
+
+type oaiEmbeddingItem struct {
+	Object    string    `json:"object"`
+	Index     int       `json:"index"`
+	Embedding []float64 `json:"embedding"`
+}
+
+type oaiEmbeddingResp struct {
+	Object string             `json:"object"`
+	Data   []oaiEmbeddingItem `json:"data"`
+	Model  string             `json:"model"`
+	Usage  struct {
+		PromptTokens int `json:"prompt_tokens"`
+		TotalTokens  int `json:"total_tokens"`
+	} `json:"usage"`
+}
+
+func (g *gemini) WriteResponse(w http.ResponseWriter, resp *http.Response, kind Kind, model string, stream bool) error {
+	if kind == KindEmbeddings {
+		return g.writeEmbeddingsResponse(w, resp, model)
+	}
 	if stream {
 		return g.streamSSE(w, resp.Body, model)
 	}
@@ -142,6 +242,57 @@ func (g *gemini) WriteResponse(w http.ResponseWriter, resp *http.Response, model
 	out := translateGemToOAI(&gr, model, false)
 	w.Header().Set("Content-Type", "application/json")
 	return json.NewEncoder(w).Encode(out)
+}
+
+func (g *gemini) writeEmbeddingsResponse(w http.ResponseWriter, resp *http.Response, model string) error {
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+
+	var oaiResp oaiEmbeddingResp
+	oaiResp.Object = "list"
+	oaiResp.Model = model
+
+	// Try to unmarshal as batchEmbedContents response first.
+	var batchResp struct {
+		Embeddings []struct {
+			Values []float64 `json:"values"`
+		} `json:"embeddings"`
+	}
+	if err := json.Unmarshal(respBody, &batchResp); err == nil && len(batchResp.Embeddings) > 0 {
+		for i, emb := range batchResp.Embeddings {
+			oaiResp.Data = append(oaiResp.Data, oaiEmbeddingItem{
+				Object:    "embedding",
+				Index:     i,
+				Embedding: emb.Values,
+			})
+		}
+	} else {
+		// Try single embedContent response.
+		var singleResp struct {
+			Embedding struct {
+				Values []float64 `json:"values"`
+			} `json:"embedding"`
+		}
+		if err := json.Unmarshal(respBody, &singleResp); err != nil {
+			// Write the original error response from Gemini
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(resp.StatusCode)
+			_, _ = w.Write(respBody)
+			return nil
+		}
+		oaiResp.Data = []oaiEmbeddingItem{
+			{
+				Object:    "embedding",
+				Index:     0,
+				Embedding: singleResp.Embedding.Values,
+			},
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	return json.NewEncoder(w).Encode(oaiResp)
 }
 
 func (g *gemini) streamSSE(w http.ResponseWriter, body io.Reader, model string) error {

@@ -78,6 +78,8 @@ func build(p config.Provider) Provider {
 		return newGemini(p)
 	case "chatgpt-codex":
 		return newChatGPTCodex(p)
+	case "anthropic":
+		return newAnthropic(p)
 	default:
 		return nil
 	}
