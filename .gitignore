@@ -37,6 +37,9 @@ OperatorLM.exe
 audit.jsonl
 audit.log
 
+# Runtime state
+cache/
+
 # Test / scratch
 req.json
 response.txt
