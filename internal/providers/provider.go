@@ -14,6 +14,9 @@ const (
 	KindImages
 	KindResponses
 	KindEmbeddings
+	KindSpeech
+	KindTranscriptions
+	KindTranslations
 )
 
 // Provider builds upstream HTTP requests and writes their responses to a client,

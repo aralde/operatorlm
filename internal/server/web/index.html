@@ -72,6 +72,10 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V8a4 4 0 018 0v3"/></svg>
           Local auth
         </button>
+        <button class="nav-item" data-tab="localmodels">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M3 9h6M14 8h4M14 12h4M14 16h4"/></svg>
+          Local models
+        </button>
         <button class="nav-item" data-tab="help">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 015 0c0 1.5-2.5 2-2.5 4M12 17h.01"/></svg>
           Help
@@ -155,6 +159,8 @@
                   <option value="mistral">mistral</option>
                   <option value="bedrock">aws-bedrock</option>
                   <option value="azure-openai">azure-openai</option>
+                  <option value="antigravity">antigravity</option>
+                  <option value="llama-server">llama-server (local GGUF engine)</option>
                   <option value="custom">local / custom (OpenAI-compatible)</option>
                 </select>
               </div>
@@ -176,27 +182,66 @@
               </div>
               <div></div>
             </div>
-            <div id="apikey-block">
+            <div class="grid-2" id="antigravity-project-field" hidden>
               <div class="field">
+                <label>Project Workspace <span class="help-pop" data-help="Choose the active Antigravity workspace to associate with this provider. Fallback matches current directory or last active session.">?</span></label>
+                <input type="text" id="antigravity-project-search" placeholder="🔍 Search workspace path..." style="margin-bottom: 0.5rem;" />
+                <select name="project_id" id="antigravity-project-select">
+                  <option value="">-- Auto-detect (recommended) --</option>
+                </select>
+              </div>
+              <div></div>
+            </div>
+            <div id="apikey-block">
+              <div class="field" id="apikey-field">
                 <label>API key <span class="help-pop" data-help="Stored encrypted in your OS keychain (Windows Credential Manager / macOS Keychain / Linux libsecret), never in plain text on disk.">?</span></label>
                 <input name="api_key" type="password" placeholder="sk-... or AIza..." />
               </div>
+            </div>
 
-              <div class="actions">
-                <button type="button" id="probe-btn" class="btn-secondary">
-                  <span>Fetch models</span>
-                </button>
-                <span id="probe-status" class="status"></span>
+            <div id="llamacpp-block" hidden>
+              <div class="field">
+                <label>Models folder <span class="help-pop" data-help="Scanned recursively for *.gguf files.">?</span></label>
+                <input name="models_dir" placeholder="e.g. T:\AI" spellcheck="false" />
               </div>
-
-              <div id="models-block" hidden class="models-block">
+              <div class="field">
+                <label>llama-server path <span class="help-pop" data-help="Path to llama-server.exe. Leave blank or 'llama-server' to resolve on PATH.">?</span></label>
+                <input name="llama_server_path" placeholder="llama-server" spellcheck="false" />
+              </div>
+              <div class="grid-2">
                 <div class="field">
-                  <label>Models to expose <span class="help-pop" data-help="Selected models appear in /v1/models. Acts as a whitelist when used via direct slug routing.">?</span></label>
-                  <select name="models" id="models-select" multiple size="10"></select>
-                  <p class="hint">Hold <kbd>Ctrl</kbd>/<kbd>Cmd</kbd> to multi-select.</p>
+                  <label>Port</label>
+                  <input name="port" type="number" min="1" max="65535" placeholder="8081" />
                 </div>
-                <button type="submit" id="save-btn" disabled class="btn-primary">Save provider</button>
+                <div class="field">
+                  <label>Context size (-c)</label>
+                  <input name="context_size" type="number" min="0" placeholder="4096" />
+                </div>
+                <div class="field">
+                  <label>GPU layers (-ngl) <span class="help-pop" data-help="0 = CPU only.">?</span></label>
+                  <input name="ngpu_layers" type="number" min="0" placeholder="0" />
+                </div>
+                <div class="field">
+                  <label>Extra arguments (one per line) <span class="help-pop" data-help="e.g. --mmproj\nT:\AI\proj.gguf">?</span></label>
+                  <textarea name="extra_args" rows="3" placeholder="e.g.&#10;--mmproj&#10;T:\AI\mmproj-f16.gguf" spellcheck="false"></textarea>
+                </div>
               </div>
+            </div>
+
+            <div class="actions">
+              <button type="button" id="probe-btn" class="btn-secondary">
+                <span>Fetch models</span>
+              </button>
+              <span id="probe-status" class="status"></span>
+            </div>
+
+            <div id="models-block" hidden class="models-block">
+              <div class="field">
+                <label>Models to expose <span class="help-pop" data-help="Selected models appear in /v1/models. Acts as a whitelist when used via direct slug routing.">?</span></label>
+                <select name="models" id="models-select" multiple size="10"></select>
+                <p class="hint">Hold <kbd>Ctrl</kbd>/<kbd>Cmd</kbd> to multi-select.</p>
+              </div>
+              <button type="submit" id="save-btn" disabled class="btn-primary">Save provider</button>
             </div>
 
             <div id="chatgpt-block" hidden class="models-block">
@@ -555,6 +600,31 @@
             </table>
           </div>
         </div>
+
+        <div class="card">
+          <div class="card-head">
+            <h2>Recent requests (Last 20)</h2>
+          </div>
+          <div id="recent-empty" class="empty">
+            <div class="empty-icon">⌁</div>
+            <p>No requests recorded yet. Recent requests will appear after they are made.</p>
+          </div>
+          <div class="table-wrap" id="recent-table-wrap" hidden>
+            <table id="recent-table">
+              <thead>
+                <tr>
+                  <th>Time</th>
+                  <th>Model</th>
+                  <th>Path</th>
+                  <th>Status</th>
+                  <th>Duration</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
       </section>
 
       <!-- ============ AUDIT ============ -->
@@ -661,6 +731,151 @@
         </div>
       </section>
 
+      <!-- ============ LOCAL MODELS ============ -->
+      <section class="tab-pane" data-pane="localmodels">
+        <header class="pane-head">
+          <div>
+            <h1>Local models</h1>
+            <p class="muted">Run GGUF models on this machine with no external daemon. operatorlm scans a folder for <code>*.gguf</code> files and, on demand, spawns <code>llama-server</code> (llama.cpp) loading the requested model, then routes <code>&lt;prefix&gt;&lt;model&gt;</code> to it. Swapping models stops and restarts the engine automatically.</p>
+          </div>
+        </header>
+
+        <div class="card">
+          <div class="card-head">
+            <h2>Recommended models</h2>
+            <span class="badge">curated</span>
+          </div>
+          <p class="muted small">Tuned for a ~4 GB GPU (Q4_K_M). One click downloads the model (and its vision projector when applicable) into your models folder with sensible defaults. Sizes are large — downloads run in the background.</p>
+          <div id="catalog-empty" class="empty" hidden>
+            <div class="empty-icon">⌁</div>
+            <p>Set a models folder below (or add a <em>llama-server</em> provider) so downloads have a destination.</p>
+          </div>
+          <div id="catalog-cards" class="catalog-grid"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <h2>Settings</h2>
+            <span id="localmodels-status" class="badge">unknown</span>
+          </div>
+          <form id="localmodels-form" autocomplete="off" class="form">
+            <div class="field">
+              <label class="checkbox">
+                <input type="checkbox" name="enabled" />
+                <span>Enable local engine</span>
+                <span class="help-pop" data-help="When enabled, models under the scan folder are exposed as &lt;prefix&gt;&lt;model&gt; and llama-server is spawned on demand.">?</span>
+              </label>
+            </div>
+            <div class="field">
+              <label>Models folder <span class="help-pop" data-help="Scanned recursively for *.gguf files. Split (multi-shard) models collapse to their first shard.">?</span></label>
+              <input name="models_dir" type="text" placeholder="e.g. T:\AI" spellcheck="false" />
+            </div>
+            <div class="field">
+              <label>llama-server path <span class="help-pop" data-help="Path to llama.cpp's llama-server executable. Leave as 'llama-server' to resolve it on PATH.">?</span></label>
+              <input name="llama_server_path" type="text" placeholder="llama-server" spellcheck="false" />
+            </div>
+            <div class="grid-2">
+              <div class="field">
+                <label>Route prefix</label>
+                <input name="prefix" type="text" placeholder="local/" spellcheck="false" />
+              </div>
+              <div class="field">
+                <label>Port</label>
+                <input name="port" type="number" min="1" max="65535" placeholder="8081" />
+              </div>
+              <div class="field">
+                <label>Context size (-c)</label>
+                <input name="context_size" type="number" min="0" placeholder="4096" />
+              </div>
+              <div class="field">
+                <label>GPU layers (-ngl) <span class="help-pop" data-help="Number of model layers offloaded to the GPU. 0 = CPU only.">?</span></label>
+                <input name="ngpu_layers" type="number" min="0" placeholder="0" />
+              </div>
+            </div>
+            
+            <!-- Whisper (STT) Settings -->
+            <div style="margin-top: 20px; border-top: 1px solid var(--border); padding-top: 15px;">
+              <h3>Speech-to-Text (whisper.cpp)</h3>
+              <div class="field" style="margin-top: 10px;">
+                <label class="checkbox">
+                  <input type="checkbox" name="whisper_enabled" />
+                  <span>Enable local STT (Whisper)</span>
+                  <span class="help-pop" data-help="When enabled, runs whisper-server to transcribe audio locally.">?</span>
+                </label>
+              </div>
+              <div class="grid-2">
+                <div class="field">
+                  <label>whisper-server path</label>
+                  <input name="whisper_server_path" type="text" placeholder="whisper-server" spellcheck="false" />
+                </div>
+                <div class="field">
+                  <label>Whisper port</label>
+                  <input name="whisper_port" type="number" min="1" max="65535" placeholder="8082" />
+                </div>
+              </div>
+              <div class="field">
+                <label>Whisper model file</label>
+                <input name="whisper_model" type="text" placeholder="ggml-base.bin" spellcheck="false" />
+              </div>
+            </div>
+
+            <!-- Piper (TTS) Settings -->
+            <div style="margin-top: 20px; border-top: 1px solid var(--border); padding-top: 15px; margin-bottom: 15px;">
+              <h3>Text-to-Speech (Piper)</h3>
+              <div class="field" style="margin-top: 10px;">
+                <label class="checkbox">
+                  <input type="checkbox" name="piper_enabled" />
+                  <span>Enable local TTS (Piper)</span>
+                  <span class="help-pop" data-help="When enabled, uses Piper to synthesize speech locally.">?</span>
+                </label>
+              </div>
+              <div class="grid-2">
+                <div class="field">
+                  <label>piper path</label>
+                  <input name="piper_path" type="text" placeholder="piper" spellcheck="false" />
+                </div>
+                <div class="field">
+                  <label>Piper port (Go wrapper)</label>
+                  <input name="piper_port" type="number" min="1" max="65535" placeholder="8083" />
+                </div>
+              </div>
+              <div class="field">
+                <label>Piper model voice (.onnx)</label>
+                <input name="piper_model" type="text" placeholder="es_ES-davefx-medium.onnx" spellcheck="false" />
+              </div>
+            </div>
+
+            <div class="actions">
+              <button type="submit" class="btn-primary">Apply</button>
+              <button type="button" id="localmodels-rescan" class="btn-secondary">Rescan folder</button>
+              <button type="button" id="localmodels-download-server" class="btn-secondary" style="display:none;">Download llama-server</button>
+              <button type="button" id="localmodels-download-whisper" class="btn-secondary" style="display:none;">Download whisper-server</button>
+              <button type="button" id="localmodels-download-piper" class="btn-secondary" style="display:none;">Download piper</button>
+              <span id="server-download-status" class="muted small" style="margin-left: 10px;"></span>
+            </div>
+          </form>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <h2>Discovered models</h2>
+            <span class="badge" id="localmodels-count">0</span>
+          </div>
+          <div id="localmodels-empty" class="empty" hidden>
+            <div class="empty-icon">◷</div>
+            <p>No GGUF files found. Set a models folder above and click <em>Rescan folder</em>.</p>
+          </div>
+          <div class="table-wrap">
+            <table id="localmodels-table">
+              <thead>
+                <tr><th>Model id</th><th>Size</th><th>Path</th><th></th></tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
       <!-- ============ HELP ============ -->
       <section class="tab-pane" data-pane="help">
         <header class="pane-head">
@@ -762,6 +977,44 @@
           <input id="edit-base" />
         </div>
       </div>
+      <div class="grid-2" id="edit-antigravity-project-field" hidden>
+        <div class="field">
+          <label>Project Workspace <span class="help-pop" data-help="Choose the active Antigravity workspace to associate with this provider. Fallback matches current directory or last active session.">?</span></label>
+          <input type="text" id="edit-project-search" placeholder="🔍 Search workspace path..." style="margin-bottom: 0.5rem;" />
+          <select id="edit-project-id">
+            <option value="">-- Auto-detect (recommended) --</option>
+          </select>
+        </div>
+        <div></div>
+      </div>
+      <div id="edit-llamacpp-block" hidden>
+        <div class="field">
+          <label>Models folder</label>
+          <input id="edit-models-dir" placeholder="e.g. T:\AI" spellcheck="false" />
+        </div>
+        <div class="field">
+          <label>llama-server path</label>
+          <input id="edit-llama-server-path" placeholder="llama-server" spellcheck="false" />
+        </div>
+        <div class="grid-2">
+          <div class="field">
+            <label>Port</label>
+            <input id="edit-port" type="number" min="1" max="65535" placeholder="8081" />
+          </div>
+          <div class="field">
+            <label>Context size (-c)</label>
+            <input id="edit-context-size" type="number" min="0" placeholder="4096" />
+          </div>
+          <div class="field">
+            <label>GPU layers (-ngl)</label>
+            <input id="edit-ngpu-layers" type="number" min="0" placeholder="0" />
+          </div>
+          <div class="field">
+            <label>Extra arguments (one per line)</label>
+            <textarea id="edit-extra-args" rows="3" placeholder="e.g.&#10;--mmproj&#10;T:\AI\mmproj-f16.gguf" spellcheck="false"></textarea>
+          </div>
+        </div>
+      </div>
       <div id="edit-fetch-block" class="actions">
         <button type="button" id="edit-probe-btn" class="btn-secondary">
           <span>Fetch models</span>
@@ -785,6 +1038,47 @@
         <button type="submit" class="btn-primary">Save changes</button>
       </div>
     </form>
+  </dialog>
+
+  <dialog id="request-detail-dialog" class="modal" style="max-width: 720px;">
+    <div class="form">
+      <h2 style="margin-top:0">Request details</h2>
+      <div class="grid-2">
+        <div class="field">
+          <label>Time</label>
+          <input id="req-detail-time" readonly />
+        </div>
+        <div class="field">
+          <label>Model</label>
+          <input id="req-detail-model" readonly />
+        </div>
+      </div>
+      <div class="grid-3">
+        <div class="field">
+          <label>Path</label>
+          <input id="req-detail-path" readonly />
+        </div>
+        <div class="field">
+          <label>Status</label>
+          <input id="req-detail-status" readonly />
+        </div>
+        <div class="field">
+          <label>Duration</label>
+          <input id="req-detail-duration" readonly />
+        </div>
+      </div>
+      <div class="field">
+        <label>Request Body</label>
+        <pre id="req-detail-body" class="result-body" style="max-height: 200px; overflow: auto; white-space: pre-wrap; word-break: break-all; font-size: .8rem;"></pre>
+      </div>
+      <div class="field">
+        <label>Response Body / Error</label>
+        <pre id="req-detail-response" class="result-body" style="max-height: 250px; overflow: auto; white-space: pre-wrap; word-break: break-all; font-size: .8rem;"></pre>
+      </div>
+      <div class="actions">
+        <button type="button" class="btn-primary" id="req-detail-close">Close</button>
+      </div>
+    </div>
   </dialog>
 
   <script src="app.js"></script>

@@ -97,6 +97,11 @@ func ClassifyStatus(status int) ErrorClass {
 		return ClassOK
 	case status == http.StatusRequestTimeout, status == http.StatusTooManyRequests, status == 425:
 		return ClassRateLimit
+	case status == http.StatusRequestEntityTooLarge:
+		// 413: request too big for this target (e.g. Groq TPM "Request too
+		// large"). Unambiguous by code — a target with a larger limit may
+		// accept it, so advance the alias loop instead of failing the client.
+		return ClassClientFailover
 	case status >= 500:
 		return ClassServer
 	case status >= 400:

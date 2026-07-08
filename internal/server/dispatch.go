@@ -102,10 +102,12 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request, kind providers
 
 	var cw *captureWriter
 	respWriter := w
+	capLimit := 65536
 	if s.audit != nil && s.audit.Enabled() {
-		cw = &captureWriter{ResponseWriter: w, cap: s.audit.MaxResponseBody()}
-		respWriter = cw
+		capLimit = s.audit.MaxResponseBody()
 	}
+	cw = &captureWriter{ResponseWriter: w, cap: capLimit}
+	respWriter = cw
 
 	finish := func(status int, errMsg string, attemptID string, upstream *audit.UpstreamInfo) {
 		if rec == nil {
@@ -135,6 +137,19 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request, kind providers
 		http.Error(respWriter, errMsg, status)
 	}
 	finish(status, errMsg, attemptID, upstream)
+
+	s.addRecentRequest(RecentRequest{
+		Timestamp:  start,
+		Method:     r.Method,
+		Path:       r.URL.Path,
+		Model:      model,
+		Stream:     stream,
+		Body:       string(body),
+		Response:   string(cw.buf.Bytes()),
+		Status:     status,
+		Error:      errMsg,
+		DurationMs: time.Since(start).Milliseconds(),
+	})
 }
 
 // tryDispatch resolves and runs attempts for a single model identifier.

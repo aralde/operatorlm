@@ -12,9 +12,11 @@ import (
 )
 
 // ProbeOptions carries provider-type-specific knobs for ProbeModels.
+// ProbeOptions carries provider-type-specific knobs for ProbeModels.
 type ProbeOptions struct {
 	// ApiVersion is required for azure-openai.
 	ApiVersion string
+	ModelsDir  string
 }
 
 // ProbeModels fetches the list of available models from the upstream
@@ -31,6 +33,10 @@ func ProbeModels(ctx context.Context, providerType, baseURL, apiKey string, opts
 		return probeAzureOpenAI(ctx, baseURL, apiKey, opts.ApiVersion)
 	case "gemini":
 		return probeGemini(ctx, baseURL, apiKey)
+	case "antigravity":
+		return []string{"default", "pro", "flash", "flash-lite", "flash_lite", "lite", "gpt-oss", "gpt-oss-120b", "openai/gpt-oss-120b", "openai/gpt-oss-120b:free"}, nil
+	case "llama-server":
+		return probeLlamaServer(opts.ModelsDir)
 	default:
 		return nil, fmt.Errorf("unsupported provider type: %s", providerType)
 	}
@@ -146,6 +152,18 @@ func probeGemini(ctx context.Context, baseURL, apiKey string) ([]string, error) 
 		}
 	}
 	return dedupeSorted(out), nil
+}
+
+func probeLlamaServer(modelsDir string) ([]string, error) {
+	models, err := ScanLocalModels(modelsDir)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, len(models))
+	for i, m := range models {
+		out[i] = m.ID
+	}
+	return out, nil
 }
 
 func supportsGenerate(methods []string) bool {
