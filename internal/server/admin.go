@@ -21,7 +21,16 @@ type providerPayload struct {
 func (s *Server) handleProviders(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		writeJSON(w, http.StatusOK, s.cfg.Snapshot())
+		var out []config.Provider
+		for _, p := range s.reg.All() {
+			out = append(out, config.Provider{
+				Name:   p.Name(),
+				Type:   p.Type(),
+				Prefix: p.Prefix(),
+				Models: p.Models(),
+			})
+		}
+		writeJSON(w, http.StatusOK, out)
 	case http.MethodPost:
 		var p providerPayload
 		if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
@@ -33,11 +42,11 @@ func (s *Server) handleProviders(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		applyDefaults(&p.Provider)
-		if p.BaseURL == "" && p.Type != "chatgpt-codex" {
+		if p.BaseURL == "" && p.Type != "chatgpt-codex" && p.Type != "antigravity" && p.Type != "llama-server" {
 			http.Error(w, "base_url required", http.StatusBadRequest)
 			return
 		}
-		if p.APIKeyRef == "" {
+		if p.APIKeyRef == "" && p.Type != "llama-server" {
 			p.APIKeyRef = "operatorlm:" + p.Name
 		}
 		if p.APIKey != "" {
@@ -218,7 +227,7 @@ func (s *Server) handleAliases(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, "target #"+itoa(i)+": provider not found", http.StatusBadRequest)
 				return
 			}
-			if p.KeyRef(t.Key) == "" {
+			if p.KeyRef(t.Key) == "" && p.Type != "llama-server" && p.Type != "llamacpp" {
 				http.Error(w, "target #"+itoa(i)+": key not found", http.StatusBadRequest)
 				return
 			}
@@ -319,6 +328,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"targets": s.rt.Breaker().Snapshot(),
+		"recent":  s.getRecentRequests(),
 	})
 }
 
@@ -494,6 +504,8 @@ var providerDefaults = map[string]config.Provider{
 	"custom":       {Prefix: "local/"},
 	// chatgpt-codex uses a hardcoded base URL inside the provider; no API key.
 	"chatgpt-codex": {Prefix: "chatgpt/"},
+	"antigravity":   {Prefix: "antigravity/"},
+	"llama-server":  {Prefix: "local/", Port: 8081, ContextSize: 4096, NGPULayers: 20},
 }
 
 func applyDefaults(p *config.Provider) {
@@ -507,6 +519,17 @@ func applyDefaults(p *config.Provider) {
 	if p.Prefix == "" {
 		p.Prefix = d.Prefix
 	}
+	if p.Type == "llama-server" {
+		if p.Port == 0 {
+			p.Port = d.Port
+		}
+		if p.ContextSize == 0 {
+			p.ContextSize = d.ContextSize
+		}
+		if p.NGPULayers == 0 {
+			p.NGPULayers = d.NGPULayers
+		}
+	}
 }
 
 type probeReq struct {
@@ -515,6 +538,7 @@ type probeReq struct {
 	APIKey     string `json:"api_key"`
 	Provider   string `json:"provider"`
 	ApiVersion string `json:"api_version,omitempty"`
+	ModelsDir  string `json:"models_dir,omitempty"`
 }
 
 func (s *Server) handleProbe(w http.ResponseWriter, r *http.Request) {
@@ -527,7 +551,7 @@ func (s *Server) handleProbe(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	tmp := config.Provider{Type: p.Type, BaseURL: p.BaseURL, ApiVersion: p.ApiVersion}
+	tmp := config.Provider{Type: p.Type, BaseURL: p.BaseURL, ApiVersion: p.ApiVersion, ModelsDir: p.ModelsDir}
 	apiKey := p.APIKey
 	if p.Provider != "" {
 		existing, ok := s.cfg.FindProvider(p.Provider)
@@ -544,6 +568,9 @@ func (s *Server) handleProbe(w http.ResponseWriter, r *http.Request) {
 		if tmp.ApiVersion == "" {
 			tmp.ApiVersion = existing.ApiVersion
 		}
+		if tmp.ModelsDir == "" {
+			tmp.ModelsDir = existing.ModelsDir
+		}
 		if apiKey == "" {
 			ref := existing.APIKeyRef
 			if ref == "" {
@@ -551,7 +578,7 @@ func (s *Server) handleProbe(w http.ResponseWriter, r *http.Request) {
 			}
 			secret, err := config.GetSecret(ref)
 			if err != nil || secret == "" {
-				if tmp.Type != "custom" {
+				if tmp.Type != "custom" && tmp.Type != "llama-server" {
 					http.Error(w, "no stored API key for provider", http.StatusNotFound)
 					return
 				}
@@ -561,21 +588,36 @@ func (s *Server) handleProbe(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	applyDefaults(&tmp)
-	if tmp.BaseURL == "" {
+	if tmp.BaseURL == "" && tmp.Type != "antigravity" && tmp.Type != "llama-server" {
 		http.Error(w, "base_url required", http.StatusBadRequest)
 		return
 	}
-	// API key is optional for custom/local providers (Ollama, LM Studio, etc.).
-	if apiKey == "" && tmp.Type != "custom" {
+	// API key is optional for custom/local providers (Ollama, LM Studio, etc.), antigravity, and llama-server.
+	if apiKey == "" && tmp.Type != "custom" && tmp.Type != "antigravity" && tmp.Type != "llama-server" {
 		http.Error(w, "api_key required", http.StatusBadRequest)
 		return
 	}
-	models, err := providers.ProbeModels(r.Context(), tmp.Type, tmp.BaseURL, apiKey, providers.ProbeOptions{ApiVersion: tmp.ApiVersion})
+	models, err := providers.ProbeModels(r.Context(), tmp.Type, tmp.BaseURL, apiKey, providers.ProbeOptions{
+		ApiVersion: tmp.ApiVersion,
+		ModelsDir:  tmp.ModelsDir,
+	})
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"models": models})
+}
+
+func (s *Server) handleAntigravityProjects(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	projects := providers.GetDiscoveredProjects()
+	if projects == nil {
+		projects = []providers.DiscoveredProject{}
+	}
+	writeJSON(w, http.StatusOK, projects)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

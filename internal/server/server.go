@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/rs/cors"
@@ -43,15 +44,18 @@ func (s *statusWriter) Flush() {
 var webFS embed.FS
 
 type Server struct {
-	cfg   *config.Config
-	reg   *providers.Registry
-	rt    *router.Router
-	audit *audit.Logger
-	upd   *update.Manager
+	cfg       *config.Config
+	reg       *providers.Registry
+	rt        *router.Router
+	audit     *audit.Logger
+	upd       *update.Manager
+	dl        *providers.Downloader
+	recentMu  sync.Mutex
+	recentReq []RecentRequest
 }
 
 func New(cfg *config.Config, reg *providers.Registry, auditLogger *audit.Logger, upd *update.Manager) *Server {
-	return &Server{cfg: cfg, reg: reg, rt: router.New(cfg), audit: auditLogger, upd: upd}
+	return &Server{cfg: cfg, reg: reg, rt: router.New(cfg), audit: auditLogger, upd: upd, dl: providers.NewDownloader()}
 }
 
 func (s *Server) Handler() http.Handler {
@@ -61,6 +65,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/v1/images/generations", s.handleImages)
 	mux.HandleFunc("/v1/responses", s.handleResponses)
 	mux.HandleFunc("/v1/embeddings", s.handleEmbeddings)
+	mux.HandleFunc("/v1/audio/speech", s.handleSpeech)
+	mux.HandleFunc("/v1/audio/transcriptions", s.handleTranscriptions)
+	mux.HandleFunc("/v1/audio/translations", s.handleTranslations)
 	mux.HandleFunc("/v1/models", s.handleModels)
 	mux.HandleFunc("/v1/messages", s.handleMessages)
 	mux.HandleFunc("/health", s.handleHealthGlobal)
@@ -77,6 +84,14 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/admin/auth/chatgpt/start", s.handleChatGPTAuthStart)
 	mux.HandleFunc("/admin/auth/chatgpt/status", s.handleChatGPTAuthStatus)
 	mux.HandleFunc("/admin/localauth", s.handleLocalAuth)
+	mux.HandleFunc("/admin/localmodels", s.handleLocalModels)
+	mux.HandleFunc("/admin/localmodels/scan", s.handleLocalModelsScan)
+	mux.HandleFunc("/admin/localmodels/catalog", s.handleLocalCatalog)
+	mux.HandleFunc("/admin/localmodels/catalog/download", s.handleLocalCatalogDownload)
+	mux.HandleFunc("/admin/localmodels/llama-server/download", s.handleLlamaServerDownload)
+	mux.HandleFunc("/admin/localmodels/whisper-server/download", s.handleWhisperServerDownload)
+	mux.HandleFunc("/admin/localmodels/piper/download", s.handlePiperDownload)
+	mux.HandleFunc("/admin/antigravity/projects", s.handleAntigravityProjects)
 	mux.HandleFunc("/admin/update/status", s.handleUpdateStatus)
 	mux.HandleFunc("/admin/update/check", s.handleUpdateCheck)
 
@@ -177,4 +192,46 @@ func (s *Server) localAuthMW(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+type RecentRequest struct {
+	ID         string    `json:"id"`
+	Timestamp  time.Time `json:"timestamp"`
+	Method     string    `json:"method"`
+	Path       string    `json:"path"`
+	Model      string    `json:"model"`
+	Stream     bool      `json:"stream"`
+	Body       string    `json:"body"`
+	Response   string    `json:"response"`
+	Status     int       `json:"status"`
+	Error      string    `json:"error"`
+	DurationMs int64     `json:"duration_ms"`
+}
+
+func (s *Server) addRecentRequest(req RecentRequest) {
+	s.recentMu.Lock()
+	defer s.recentMu.Unlock()
+	req.ID = newID()
+
+	// Truncate body and response to prevent excessive memory usage
+	const maxLen = 32768 // 32KB
+	if len(req.Body) > maxLen {
+		req.Body = req.Body[:maxLen] + " ... (truncated)"
+	}
+	if len(req.Response) > maxLen {
+		req.Response = req.Response[:maxLen] + " ... (truncated)"
+	}
+
+	s.recentReq = append(s.recentReq, req)
+	if len(s.recentReq) > 20 {
+		s.recentReq = s.recentReq[len(s.recentReq)-20:]
+	}
+}
+
+func (s *Server) getRecentRequests() []RecentRequest {
+	s.recentMu.Lock()
+	defer s.recentMu.Unlock()
+	res := make([]RecentRequest, len(s.recentReq))
+	copy(res, s.recentReq)
+	return res
 }

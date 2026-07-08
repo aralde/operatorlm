@@ -22,6 +22,17 @@ import (
 	"github.com/aralde/operatorlm/internal/version"
 )
 
+// bestEffort wraps a writer so a failed Write never reports an error. Used for
+// os.Stderr, which is an invalid handle under -H=windowsgui (no console): a
+// real error there would short-circuit io.MultiWriter and silently drop every
+// subsequent writer — including the log file.
+type bestEffort struct{ w io.Writer }
+
+func (b bestEffort) Write(p []byte) (int, error) {
+	_, _ = b.w.Write(p)
+	return len(p), nil
+}
+
 // setupLogging mirrors log output to ~/.operatorlm/operatorlm.log so that
 // builds with -H=windowsgui (no console) still produce a readable trace.
 func setupLogging() {
@@ -37,7 +48,9 @@ func setupLogging() {
 	if err != nil {
 		return
 	}
-	log.SetOutput(io.MultiWriter(os.Stderr, f))
+	// File first (the durable sink); stderr is best-effort so its errors under
+	// windowsgui can't abort the write before it reaches the file.
+	log.SetOutput(io.MultiWriter(f, bestEffort{os.Stderr}))
 }
 
 func main() {
@@ -50,6 +63,9 @@ func main() {
 	auditLogger := audit.New()
 	if a := cfg.GetAudit(); a.Enabled {
 		opts := auditOptsFromConfig(a)
+		if err := audit.RotateBackup(opts.Path); err != nil {
+			log.Printf("audit: failed to backup previous log (%v)", err)
+		}
 		if err := auditLogger.Reconfigure(true, opts); err != nil {
 			log.Printf("audit: failed to enable (%v); continuing disabled", err)
 		} else {
@@ -79,6 +95,7 @@ func main() {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
 		_ = httpSrv.Shutdown(ctx)
+		reg.Shutdown()
 		_ = auditLogger.Close()
 	}
 

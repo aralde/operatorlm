@@ -106,6 +106,22 @@ func (r *Router) Resolve(model string) ([]Attempt, error) {
 			UpstreamModel: upstream,
 		}}, nil
 	}
+
+	// Built-in local engine: models live on disk (not in [[providers]]), so
+	// resolve the local prefix directly. The engine validates that the model
+	// file exists when it tries to start.
+	if lm := r.cfg.GetLocalModels(); lm.Enabled && lm.Prefix != "" && strings.HasPrefix(model, lm.Prefix) {
+		return []Attempt{{
+			Provider: config.Provider{
+				Name:   "local",
+				Type:   "llamacpp",
+				Prefix: lm.Prefix,
+			},
+			KeyName:       "default",
+			UpstreamModel: strings.TrimPrefix(model, lm.Prefix),
+		}}, nil
+	}
+
 	return nil, fmt.Errorf("no provider or alias matches model %q", model)
 }
 
@@ -146,7 +162,7 @@ func (r *Router) resolveAlias(a config.Alias) ([]Attempt, error) {
 			return nil, fmt.Errorf("alias %q target #%d: provider %q not found", a.Name, w.idx, t.Provider)
 		}
 		keyRef := p.KeyRef(t.Key)
-		if keyRef == "" {
+		if keyRef == "" && p.Type != "llama-server" && p.Type != "llamacpp" {
 			return nil, fmt.Errorf("alias %q target #%d: key %q not found in provider %q", a.Name, w.idx, t.Key, t.Provider)
 		}
 		keyName := t.Key

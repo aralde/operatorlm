@@ -8,10 +8,13 @@ package audit
 
 import (
 	"encoding/json"
+	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -136,6 +139,61 @@ func (l *Logger) Reconfigure(enabled bool, opts Options) error {
 
 	go l.run(ch, f, done)
 	return nil
+}
+
+// RotateBackup checks if a log file exists at the given path and is non-empty.
+// If so, it renames (or appends) it to a file named with the log's last
+// modification date (e.g. audit-YYYY-MM-DD.log) in the same directory.
+func RotateBackup(path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil // Nothing to backup
+		}
+		return err
+	}
+	if info.Size() == 0 {
+		return nil // Empty file, no backup needed
+	}
+
+	modTime := info.ModTime()
+	dateStr := modTime.Format("2006-01-02")
+
+	dir := filepath.Dir(path)
+	ext := filepath.Ext(path)
+	name := filepath.Base(path)
+	nameWithoutExt := strings.TrimSuffix(name, ext)
+
+	backupName := fmt.Sprintf("%s-%s%s", nameWithoutExt, dateStr, ext)
+	backupPath := filepath.Join(dir, backupName)
+
+	// If backup file already exists, append the current log file content to it
+	// and then remove the original file. Otherwise, rename it directly.
+	if _, err := os.Stat(backupPath); err == nil {
+		srcFile, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		defer srcFile.Close()
+
+		destFile, err := os.OpenFile(backupPath, os.O_APPEND|os.O_WRONLY, 0o600)
+		if err != nil {
+			return err
+		}
+		defer destFile.Close()
+
+		if _, err := io.Copy(destFile, srcFile); err != nil {
+			return err
+		}
+		srcFile.Close()
+		destFile.Close()
+
+		return os.Remove(path)
+	} else if os.IsNotExist(err) {
+		return os.Rename(path, backupPath)
+	} else {
+		return err
+	}
 }
 
 func (l *Logger) Close() error {

@@ -4,7 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sync"
 
 	"github.com/BurntSushi/toml"
@@ -24,9 +26,18 @@ type Provider struct {
 	// ApiVersion is the api-version query string used by some upstreams
 	// (currently only azure-openai, where it is required).
 	ApiVersion string    `toml:"api_version,omitempty" json:"api_version,omitempty"`
-	Models    []string  `toml:"models,omitempty" json:"models,omitempty"`
-	Keys      []KeySlot `toml:"keys,omitempty"   json:"keys,omitempty"`
-	Disabled  bool      `toml:"disabled,omitempty" json:"disabled,omitempty"`
+	ProjectID  string    `toml:"project_id,omitempty"  json:"project_id,omitempty"`
+	Models     []string  `toml:"models,omitempty" json:"models,omitempty"`
+	Keys       []KeySlot `toml:"keys,omitempty"   json:"keys,omitempty"`
+	Disabled   bool      `toml:"disabled,omitempty" json:"disabled,omitempty"`
+
+	// llama-server local models fields
+	ModelsDir       string   `toml:"models_dir,omitempty"      json:"models_dir,omitempty"`
+	LlamaServerPath string   `toml:"llama_server_path,omitempty" json:"llama_server_path,omitempty"`
+	Port            int      `toml:"port,omitempty"             json:"port,omitempty"`
+	ContextSize     int      `toml:"context_size,omitempty"     json:"context_size,omitempty"`
+	NGPULayers      int      `toml:"ngpu_layers,omitempty"      json:"ngpu_layers,omitempty"`
+	ExtraArgs       []string `toml:"extra_args,omitempty"       json:"extra_args,omitempty"`
 }
 
 // KeyRef returns the api_key_ref to use for a given key name.
@@ -153,6 +164,138 @@ type LocalAuthConfig struct {
 	KeyRef  string `toml:"key_ref,omitempty" json:"key_ref,omitempty"`
 }
 
+// LocalModelsConfig drives the built-in local inference engine: operatorlm
+// scans ModelsDir for *.gguf files and, on demand, spawns LlamaServerPath
+// (llama.cpp's llama-server) loading the requested model, then proxies to it.
+// This makes the proxy self-contained ("Ollama-like") without depending on a
+// separate daemon.
+type LocalModelsConfig struct {
+	Enabled bool `toml:"enabled" json:"enabled"`
+	// ModelsDir is scanned recursively for *.gguf model files.
+	ModelsDir string `toml:"models_dir,omitempty" json:"models_dir,omitempty"`
+	// LlamaServerPath is the path to the llama-server executable. If empty,
+	// "llama-server" is looked up on PATH.
+	LlamaServerPath string `toml:"llama_server_path,omitempty" json:"llama_server_path,omitempty"`
+	// Prefix routes models to this engine (default "local/").
+	Prefix string `toml:"prefix,omitempty" json:"prefix,omitempty"`
+	// Port is the loopback port the spawned llama-server listens on.
+	Port int `toml:"port,omitempty" json:"port,omitempty"`
+	// ContextSize is the -c / --ctx-size passed to llama-server.
+	ContextSize int `toml:"context_size,omitempty" json:"context_size,omitempty"`
+	// NGPULayers is -ngl: number of layers offloaded to GPU (0 = CPU only).
+	NGPULayers int `toml:"ngpu_layers,omitempty" json:"ngpu_layers,omitempty"`
+	// ExtraArgs are appended verbatim to the llama-server command line.
+	ExtraArgs []string `toml:"extra_args,omitempty" json:"extra_args,omitempty"`
+
+	// Local Audio STT (whisper.cpp)
+	WhisperEnabled    bool   `toml:"whisper_enabled" json:"whisper_enabled"`
+	WhisperServerPath string `toml:"whisper_server_path,omitempty" json:"whisper_server_path,omitempty"`
+	WhisperPort       int    `toml:"whisper_port,omitempty" json:"whisper_port,omitempty"`
+	WhisperModel      string `toml:"whisper_model,omitempty" json:"whisper_model,omitempty"`
+
+	// Local Audio TTS (Piper)
+	PiperEnabled bool   `toml:"piper_enabled" json:"piper_enabled"`
+	PiperPath    string `toml:"piper_path,omitempty" json:"piper_path,omitempty"`
+	PiperPort    int    `toml:"piper_port,omitempty" json:"piper_port,omitempty"`
+	PiperModel   string `toml:"piper_model,omitempty" json:"piper_model,omitempty"`
+}
+
+// GetDefaultPaths returns default models directory and llama-server path
+// relative to the current executable.
+func GetDefaultPaths() (modelsDir string, llamaServerPath string) {
+	exePath, err := os.Executable()
+	var baseDir string
+	if err == nil {
+		baseDir = filepath.Dir(exePath)
+	} else {
+		baseDir = "."
+	}
+	absBaseDir, err := filepath.Abs(baseDir)
+	if err == nil {
+		baseDir = absBaseDir
+	}
+	modelsDir = filepath.Join(baseDir, "localModels")
+	if runtime.GOOS == "windows" {
+		llamaServerPath = filepath.Join(baseDir, "llama-server", "llama-server.exe")
+	} else {
+		llamaServerPath = filepath.Join(baseDir, "llama-server", "llama-server")
+	}
+	return modelsDir, llamaServerPath
+}
+
+// GetDefaultAudioPaths returns default whisper-server and piper paths
+// relative to the current executable.
+func GetDefaultAudioPaths() (whisperPath string, piperPath string) {
+	exePath, err := os.Executable()
+	var baseDir string
+	if err == nil {
+		baseDir = filepath.Dir(exePath)
+	} else {
+		baseDir = "."
+	}
+	absBaseDir, err := filepath.Abs(baseDir)
+	if err == nil {
+		baseDir = absBaseDir
+	}
+	if runtime.GOOS == "windows" {
+		whisperPath = filepath.Join(baseDir, "whisper-server", "whisper-server.exe")
+		piperPath = filepath.Join(baseDir, "piper", "piper.exe")
+	} else {
+		whisperPath = filepath.Join(baseDir, "whisper-server", "whisper-server")
+		piperPath = filepath.Join(baseDir, "piper", "piper")
+	}
+	return whisperPath, piperPath
+}
+
+// WithDefaults fills zero values with sensible defaults.
+func (l LocalModelsConfig) WithDefaults() LocalModelsConfig {
+	if l.Prefix == "" {
+		l.Prefix = "local/"
+	}
+	if l.Port == 0 {
+		l.Port = 8081
+	}
+	if l.ContextSize == 0 {
+		l.ContextSize = 4096
+	}
+
+	defaultModelsDir, defaultLlamaServer := GetDefaultPaths()
+	if l.ModelsDir == "" {
+		l.ModelsDir = defaultModelsDir
+	}
+	if l.LlamaServerPath == "" {
+		if _, err := exec.LookPath("llama-server"); err == nil {
+			l.LlamaServerPath = "llama-server"
+		} else {
+			l.LlamaServerPath = defaultLlamaServer
+		}
+	}
+
+	// Audio defaults
+	if l.WhisperPort == 0 {
+		l.WhisperPort = 8082
+	}
+	defaultWhisper, defaultPiper := GetDefaultAudioPaths()
+	if l.WhisperServerPath == "" {
+		if _, err := exec.LookPath("whisper-server"); err == nil {
+			l.WhisperServerPath = "whisper-server"
+		} else {
+			l.WhisperServerPath = defaultWhisper
+		}
+	}
+	if l.PiperPort == 0 {
+		l.PiperPort = 8083
+	}
+	if l.PiperPath == "" {
+		if _, err := exec.LookPath("piper"); err == nil {
+			l.PiperPath = "piper"
+		} else {
+			l.PiperPath = defaultPiper
+		}
+	}
+	return l
+}
+
 type Config struct {
 	Port            int               `toml:"port"`
 	CORSOrigins     []string          `toml:"cors_origins"`
@@ -162,6 +305,7 @@ type Config struct {
 	Audit           AuditConfig       `toml:"audit,omitempty"`
 	Reliability     ReliabilityConfig `toml:"reliability,omitempty"`
 	LocalAuth       LocalAuthConfig   `toml:"local_auth,omitempty"`
+	LocalModels     LocalModelsConfig `toml:"local_models,omitempty"`
 
 	mu   sync.RWMutex `toml:"-"`
 	path string       `toml:"-"`
@@ -176,6 +320,22 @@ func defaultConfig(path string) *Config {
 			{Name: "openrouter", Type: "openrouter", BaseURL: "https://openrouter.ai/api/v1", Prefix: "openrouter/", APIKeyRef: "operatorlm:openrouter"},
 			{Name: "groq", Type: "groq", BaseURL: "https://api.groq.com/openai/v1", Prefix: "groq/", APIKeyRef: "operatorlm:groq"},
 			{Name: "gemini", Type: "gemini", BaseURL: "https://generativelanguage.googleapis.com/v1beta", Prefix: "gemini/", APIKeyRef: "operatorlm:gemini"},
+		},
+		Aliases: []Alias{
+			{
+				Name:     "whisper-1",
+				Strategy: "fallback",
+				Targets: []AliasTarget{
+					{Provider: "whisper-local", UpstreamModel: "whisper-1", Order: 1},
+				},
+			},
+			{
+				Name:     "tts-1",
+				Strategy: "fallback",
+				Targets: []AliasTarget{
+					{Provider: "piper-local", UpstreamModel: "tts-1", Order: 1},
+				},
+			},
 		},
 		path: path,
 	}
@@ -293,6 +453,18 @@ func (c *Config) SetLocalAuth(la LocalAuthConfig) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.LocalAuth = la
+}
+
+func (c *Config) GetLocalModels() LocalModelsConfig {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.LocalModels.WithDefaults()
+}
+
+func (c *Config) SetLocalModels(lm LocalModelsConfig) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.LocalModels = lm
 }
 
 func (c *Config) AliasSnapshot() []Alias {

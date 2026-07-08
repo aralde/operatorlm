@@ -72,6 +72,7 @@ function activate(tab) {
 navItems.forEach(b => b.addEventListener('click', () => {
   activate(b.dataset.tab);
   if (b.dataset.tab === 'tryit' && typeof loadLocalAuth === 'function') loadLocalAuth();
+  if (b.dataset.tab === 'localmodels' && typeof loadLocalModels === 'function') loadLocalModels();
 }));
 const initial = location.hash.replace('#','') || 'providers';
 if ($$(`.nav-item[data-tab="${initial}"]`).length) activate(initial);
@@ -88,12 +89,55 @@ const DEFAULTS = {
   mistral:         { prefix: 'mistral/',    base_url: 'https://api.mistral.ai/v1' },
   bedrock:         { prefix: 'bedrock/',    base_url: 'https://bedrock-runtime.us-east-1.amazonaws.com/openai/v1' },
   'azure-openai':  { prefix: 'azure/',      base_url: 'https://YOUR-RESOURCE.openai.azure.com', api_version: '2024-10-21' },
+  antigravity:     { prefix: 'antigravity/', base_url: '' },
+  'llama-server':  { prefix: 'local/',      base_url: '' },
   custom:          { prefix: 'local/',      base_url: 'http://localhost:11434/v1' },
 };
 
 // in-memory snapshots
 let providers = [];
 let aliases   = [];
+let discoveredProjects = [];
+
+function populateProjectSelect(sel, filterVal = '') {
+  if (!sel) return;
+  const currentVal = sel.value;
+  sel.innerHTML = '<option value="">-- Auto-detect (recommended) --</option>';
+  const lowerFilter = filterVal.toLowerCase();
+  discoveredProjects.forEach(p => {
+    if (!lowerFilter || p.path.toLowerCase().includes(lowerFilter) || p.id.toLowerCase().includes(lowerFilter)) {
+      const o = document.createElement('option');
+      o.value = p.id;
+      o.textContent = `${p.path} (${p.id.slice(0, 8)})`;
+      sel.appendChild(o);
+    }
+  });
+  sel.value = currentVal;
+}
+
+async function loadAntigravityProjects() {
+  try {
+    discoveredProjects = await api('GET', '/admin/antigravity/projects') || [];
+    const mainSel = document.getElementById('antigravity-project-select');
+    const editSel = document.getElementById('edit-project-id');
+    const mainSearch = document.getElementById('antigravity-project-search');
+    const editSearch = document.getElementById('edit-project-search');
+
+    populateProjectSelect(mainSel);
+    populateProjectSelect(editSel);
+
+    if (mainSearch && mainSel && !mainSearch.dataset.wired) {
+      mainSearch.dataset.wired = 'true';
+      mainSearch.addEventListener('input', () => populateProjectSelect(mainSel, mainSearch.value));
+    }
+    if (editSearch && editSel && !editSearch.dataset.wired) {
+      editSearch.dataset.wired = 'true';
+      editSearch.addEventListener('input', () => populateProjectSelect(editSel, editSearch.value));
+    }
+  } catch (e) {
+    console.error('Failed to load Antigravity projects:', e);
+  }
+}
 
 // ─────────────────────────────────────────────────────────────
 //  Providers tab
@@ -114,6 +158,7 @@ const modelsBlock  = $('#models-block');
 const modelsSelect = $('#models-select');
 const saveBtn      = $('#save-btn');
 const apikeyBlock      = $('#apikey-block');
+const apikeyField      = $('#apikey-field');
 const chatgptBlock     = $('#chatgpt-block');
 const chatgptLoginBtn  = $('#chatgpt-login-btn');
 const chatgptStatus    = $('#chatgpt-status');
@@ -130,18 +175,50 @@ function autocompleteByType() {
     }
   }
   const isChatGPT = t === 'chatgpt-codex';
+  const isAntigravity = t === 'antigravity';
   const isAzure   = t === 'azure-openai';
   const isCustom  = t === 'custom';
-  apikeyBlock.hidden = isChatGPT;
+  const isLlama   = t === 'llama-server';
+  apikeyBlock.hidden = isChatGPT || isLlama;
+  if (apikeyField) apikeyField.hidden = isAntigravity || isLlama;
   chatgptBlock.hidden = !isChatGPT;
-  provFields.apiKey.required = !isChatGPT && !isCustom;
-  provFields.base.required = !isChatGPT;
-  provFields.base.disabled = isChatGPT;
-  if (isChatGPT) provFields.base.value = '';
+  document.getElementById('llamacpp-block').hidden = !isLlama;
+  provFields.apiKey.required = !isChatGPT && !isCustom && !isAntigravity && !isLlama;
+  provFields.base.required = !isChatGPT && !isAntigravity && !isLlama;
+  provFields.base.disabled = isChatGPT || isAntigravity || isLlama;
+  if (isChatGPT || isAntigravity || isLlama) provFields.base.value = '';
   const apiVerField = document.getElementById('api-version-field');
   if (apiVerField) apiVerField.hidden = !isAzure;
   const baseField = document.getElementById('base-url-field');
-  if (baseField) baseField.hidden = isChatGPT;
+  if (baseField) baseField.hidden = isChatGPT || isAntigravity || isLlama;
+  const antProjField = document.getElementById('antigravity-project-field');
+  if (antProjField) antProjField.hidden = !isAntigravity;
+  const mainSearch = document.getElementById('antigravity-project-search');
+  if (mainSearch) {
+    mainSearch.value = '';
+  }
+  const mainSel = document.getElementById('antigravity-project-select');
+
+  if (isLlama && localModelsConfig) {
+    const mdInput = $('[name=models_dir]', provForm);
+    const lspInput = $('[name=llama_server_path]', provForm);
+    const portInput = $('[name=port]', provForm);
+    const ctxInput = $('[name=context_size]', provForm);
+    const ngpuInput = $('[name=ngpu_layers]', provForm);
+    const eaInput = $('[name=extra_args]', provForm);
+
+    if (mdInput && !mdInput.value) mdInput.value = localModelsConfig.models_dir || '';
+    if (lspInput && !lspInput.value) lspInput.value = localModelsConfig.llama_server_path || '';
+    if (portInput && !portInput.value) portInput.value = localModelsConfig.port || '';
+    if (ctxInput && !ctxInput.value) ctxInput.value = localModelsConfig.context_size || '';
+    if (ngpuInput && !ngpuInput.value) ngpuInput.value = localModelsConfig.ngpu_layers || '';
+    if (eaInput && !eaInput.value && localModelsConfig.extra_args) {
+      eaInput.value = localModelsConfig.extra_args.join('\n');
+    }
+  }
+  if (mainSel) {
+    populateProjectSelect(mainSel);
+  }
   if (isChatGPT) {
     chatgptStatus.textContent = '';
     chatgptStatus.className = 'status';
@@ -179,11 +256,20 @@ probeBtn.addEventListener('click', async () => {
     api_key: provFields.apiKey.value,
     api_version: (provFields.apiVer && provFields.apiVer.value) || '',
   };
-  const keyOptional = payload.type === 'custom';
-  if (!payload.base_url || (!payload.api_key && !keyOptional)) {
-    probeStatus.textContent = keyOptional
-      ? 'Fill base URL first'
-      : 'Fill base URL and API key first';
+  if (payload.type === 'llama-server') {
+    payload.models_dir = $('[name=models_dir]', provForm).value;
+  }
+  const keyOptional = payload.type === 'custom' || payload.type === 'antigravity' || payload.type === 'llama-server';
+  const baseOptional = payload.type === 'antigravity' || payload.type === 'llama-server';
+  if (payload.type === 'llama-server' && !payload.models_dir) {
+    probeStatus.textContent = 'Fill models folder first';
+    probeStatus.className = 'status err';
+    return;
+  }
+  if ((!payload.base_url && !baseOptional) || (!payload.api_key && !keyOptional)) {
+    probeStatus.textContent = baseOptional
+      ? 'Fill prefix first'
+      : (keyOptional ? 'Fill base URL first' : 'Fill base URL and API key first');
     probeStatus.className = 'status err';
     return;
   }
@@ -224,11 +310,20 @@ provForm.addEventListener('submit', async e => {
     name:        provFields.name.value,
     type:        provFields.type.value,
     prefix:      provFields.prefix.value,
-    base_url:    provFields.base.value,
+    base_url:    (provFields.type.value === 'chatgpt-codex' || provFields.type.value === 'antigravity' || provFields.type.value === 'llama-server') ? '' : provFields.base.value,
     api_key:     provFields.apiKey.value,
     api_version: (provFields.apiVer && provFields.apiVer.value) || '',
+    project_id:  (provFields.type.value === 'antigravity') ? document.getElementById('antigravity-project-select').value : '',
     models:      selected,
   };
+  if (payload.type === 'llama-server') {
+    payload.models_dir = $('[name=models_dir]', provForm).value;
+    payload.llama_server_path = $('[name=llama_server_path]', provForm).value;
+    payload.port = parseInt($('[name=port]', provForm).value, 10) || 8081;
+    payload.context_size = parseInt($('[name=context_size]', provForm).value, 10) || 4096;
+    payload.ngpu_layers = parseInt($('[name=ngpu_layers]', provForm).value, 10) || 0;
+    payload.extra_args = $('[name=extra_args]', provForm).value.split('\n').map(s => s.trim()).filter(Boolean);
+  }
   try {
     await api('POST', '/admin/providers', payload);
     provForm.reset();
@@ -376,8 +471,31 @@ function openEditDialog(p) {
   editProbeStatus.className = 'status';
   editDisabled.checked = !!p.disabled;
   editOriginalDisabled = !!p.disabled;
-  editBaseFld.hidden = (p.type === 'chatgpt-codex');
+  const isLlama = p.type === 'llama-server';
+  editBaseFld.hidden = (p.type === 'chatgpt-codex' || p.type === 'antigravity' || isLlama);
   editFetchBlock.hidden = (p.type === 'chatgpt-codex');
+  document.getElementById('edit-llamacpp-block').hidden = !isLlama;
+  if (isLlama) {
+    document.getElementById('edit-models-dir').value = p.models_dir || localModelsConfig.models_dir || '';
+    document.getElementById('edit-llama-server-path').value = p.llama_server_path || localModelsConfig.llama_server_path || '';
+    document.getElementById('edit-port').value = p.port || localModelsConfig.port || 8081;
+    document.getElementById('edit-context-size').value = p.context_size || localModelsConfig.context_size || 4096;
+    document.getElementById('edit-ngpu-layers').value = p.ngpu_layers || localModelsConfig.ngpu_layers || 0;
+    document.getElementById('edit-extra-args').value = (p.extra_args || localModelsConfig.extra_args || []).join('\n');
+  }
+  const editProjFld = document.getElementById('edit-antigravity-project-field');
+  const editProjSel = document.getElementById('edit-project-id');
+  const editProjSearch = document.getElementById('edit-project-search');
+  if (editProjSearch) {
+    editProjSearch.value = '';
+  }
+  if (editProjSel) {
+    populateProjectSelect(editProjSel);
+    editProjSel.value = p.project_id || '';
+  }
+  if (editProjFld) {
+    editProjFld.hidden = (p.type !== 'antigravity');
+  }
   if (typeof editDialog.showModal === 'function') {
     editDialog.showModal();
   } else {
@@ -395,7 +513,11 @@ editProbeBtn.addEventListener('click', async () => {
   editProbeStatus.textContent = 'Validating…';
   editProbeStatus.className = 'status pending';
   try {
-    const body = await api('POST', '/admin/providers/probe', { provider: name });
+    const payload = { provider: name };
+    if (editType.value === 'llama-server') {
+      payload.models_dir = document.getElementById('edit-models-dir').value;
+    }
+    const body = await api('POST', '/admin/providers/probe', payload);
     const models = body.models || [];
     if (!models.length) {
       editProbeStatus.textContent = 'No models returned';
@@ -425,9 +547,18 @@ editForm.addEventListener('submit', async e => {
     name,
     type,
     prefix:   editPrefix.value,
-    base_url: type === 'chatgpt-codex' ? '' : editBase.value,
+    base_url: (type === 'chatgpt-codex' || type === 'antigravity' || type === 'llama-server') ? '' : editBase.value,
+    project_id: (type === 'antigravity') ? document.getElementById('edit-project-id').value : '',
     models,
   };
+  if (type === 'llama-server') {
+    payload.models_dir = document.getElementById('edit-models-dir').value;
+    payload.llama_server_path = document.getElementById('edit-llama-server-path').value;
+    payload.port = parseInt(document.getElementById('edit-port').value, 10) || 8081;
+    payload.context_size = parseInt(document.getElementById('edit-context-size').value, 10) || 4096;
+    payload.ngpu_layers = parseInt(document.getElementById('edit-ngpu-layers').value, 10) || 0;
+    payload.extra_args = document.getElementById('edit-extra-args').value.split('\n').map(s => s.trim()).filter(Boolean);
+  }
 
   try {
     await api('POST', '/admin/providers', payload);
@@ -1007,8 +1138,90 @@ async function loadHealth() {
         } catch (e) { toast(e.message, 'error'); }
       };
     });
+
+    // --- Render recent requests ---
+    const recent = r.recent || [];
+    const recentTbody = $('#recent-table tbody');
+    const recentEmpty = $('#recent-empty');
+    const recentTableWrap = $('#recent-table-wrap');
+
+    recentTbody.innerHTML = '';
+    if (recent.length === 0) {
+      recentEmpty.hidden = false;
+      recentTableWrap.hidden = true;
+    } else {
+      recentEmpty.hidden = true;
+      recentTableWrap.hidden = false;
+
+      // Sort: newest first
+      recent.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+      for (const req of recent) {
+        const tr = document.createElement('tr');
+        const timeStr = new Date(req.timestamp).toLocaleTimeString();
+        const ok = req.status >= 200 && req.status < 300;
+        const statusClass = ok ? 'closed' : 'open'; // Reuse breaker pill styles (green/red)
+        const duration = req.duration_ms ? `${req.duration_ms}ms` : '—';
+        tr.innerHTML = `
+          <td class="muted small">${timeStr}</td>
+          <td><code>${req.model || '—'}</code></td>
+          <td class="muted small"><code>${req.method || 'POST'} ${req.path || '—'}</code></td>
+          <td><span class="state-pill ${statusClass}">${req.status}</span></td>
+          <td class="muted small">${duration}</td>
+          <td><button class="btn-ghost" data-detail-id="${req.id}">Details</button></td>`;
+        recentTbody.appendChild(tr);
+      }
+
+      recentTbody.querySelectorAll('button[data-detail-id]').forEach(btn => {
+        btn.onclick = () => {
+          const req = recent.find(x => x.id === btn.dataset.detailId);
+          if (req) {
+            openRequestDetailDialog(req);
+          }
+        };
+      });
+    }
   } catch (e) {
     console.error('health load failed', e);
+  }
+}
+
+const reqDetailDialog = $('#request-detail-dialog');
+const reqDetailClose = $('#req-detail-close');
+
+if (reqDetailClose && reqDetailDialog) {
+  reqDetailClose.onclick = () => reqDetailDialog.close();
+}
+
+function openRequestDetailDialog(req) {
+  $('#req-detail-time').value = new Date(req.timestamp).toLocaleString();
+  $('#req-detail-model').value = req.model || '—';
+  $('#req-detail-path').value = `${req.method || 'POST'} ${req.path || '—'}`;
+  $('#req-detail-status').value = req.status || '—';
+  $('#req-detail-duration').value = req.duration_ms ? `${req.duration_ms}ms` : '—';
+
+  // Format request body JSON if possible
+  let bodyText = req.body;
+  try {
+    bodyText = JSON.stringify(JSON.parse(req.body), null, 2);
+  } catch (_) {}
+  $('#req-detail-body').textContent = bodyText || '(empty)';
+
+  // Format response body / error
+  let responseText = req.response;
+  if (!responseText && req.error) {
+    responseText = req.error;
+  } else {
+    try {
+      responseText = JSON.stringify(JSON.parse(req.response), null, 2);
+    } catch (_) {}
+  }
+  $('#req-detail-response').textContent = responseText || '(empty)';
+
+  if (typeof reqDetailDialog.showModal === 'function') {
+    reqDetailDialog.showModal();
+  } else {
+    reqDetailDialog.setAttribute('open', '');
   }
 }
 setInterval(loadHealth, 3000);
@@ -1131,6 +1344,337 @@ localAuthClear.addEventListener('click', async () => {
 });
 
 // ─────────────────────────────────────────────────────────────
+//  Local models (built-in llama.cpp engine)
+// ─────────────────────────────────────────────────────────────
+
+const localModelsForm   = $('#localmodels-form');
+const localModelsStatus = $('#localmodels-status');
+const localModelsCount  = $('#localmodels-count');
+const localModelsRescan = $('#localmodels-rescan');
+const localModelsDownloadServer = $('#localmodels-download-server');
+const localModelsDownloadWhisper = $('#localmodels-download-whisper');
+const localModelsDownloadPiper = $('#localmodels-download-piper');
+const serverDownloadStatus = $('#server-download-status');
+
+let localModelsConfig = {};
+
+function fmtBytes(n) {
+  if (!n || n <= 0) return '—';
+  const u = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let i = 0, v = n;
+  while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
+  return `${v.toFixed(v >= 10 || i === 0 ? 0 : 1)} ${u[i]}`;
+}
+
+function escHtml(s) {
+  return String(s).replace(/[&<>"']/g, c =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function renderLocalModels(st) {
+  const prefix = st.prefix || 'local/';
+  const models = st.models || [];
+  localModelsCount.textContent = models.length;
+  $('#localmodels-empty').hidden = models.length > 0;
+
+  const tb = $('#localmodels-table tbody');
+  tb.innerHTML = '';
+  for (const m of models) {
+    const fullId = prefix + m.id;
+    const running = st.running && st.current === m.id;
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      `<td><code>${escHtml(fullId)}</code>${running ? ' <span class="tag" style="color:var(--success)">● loaded</span>' : ''}</td>` +
+      `<td class="muted small">${fmtBytes(m.size_bytes)}</td>` +
+      `<td class="muted small" title="${escHtml(m.path)}">${escHtml(m.path)}</td>` +
+      `<td><button type="button" class="btn-secondary btn-sm" data-copy="${escHtml(fullId)}">Copy id</button></td>`;
+    tb.appendChild(tr);
+  }
+  tb.querySelectorAll('[data-copy]').forEach(b =>
+    b.addEventListener('click', () => {
+      navigator.clipboard?.writeText(b.dataset.copy);
+      toast('Model id copied', 'success');
+    }));
+}
+
+function applyLocalModelsStatus(st) {
+  localModelsConfig = st;
+  $('[name=enabled]', localModelsForm).checked         = !!st.enabled;
+  $('[name=models_dir]', localModelsForm).value        = st.models_dir || '';
+  $('[name=llama_server_path]', localModelsForm).value = st.llama_server_path || '';
+  $('[name=prefix]', localModelsForm).value            = st.prefix || '';
+  $('[name=port]', localModelsForm).value              = st.port || '';
+  $('[name=context_size]', localModelsForm).value      = st.context_size || '';
+  $('[name=ngpu_layers]', localModelsForm).value       = st.ngpu_layers || '';
+
+  // Audio fields
+  $('[name=whisper_enabled]', localModelsForm).checked     = !!st.whisper_enabled;
+  $('[name=whisper_server_path]', localModelsForm).value   = st.whisper_server_path || '';
+  $('[name=whisper_port]', localModelsForm).value           = st.whisper_port || '';
+  $('[name=whisper_model]', localModelsForm).value          = st.whisper_model || '';
+  
+  $('[name=piper_enabled]', localModelsForm).checked       = !!st.piper_enabled;
+  $('[name=piper_path]', localModelsForm).value            = st.piper_path || '';
+  $('[name=piper_port]', localModelsForm).value            = st.piper_port || '';
+  $('[name=piper_model]', localModelsForm).value           = st.piper_model || '';
+
+  if (st.running) {
+    localModelsStatus.textContent = 'running: ' + st.current;
+    localModelsStatus.style.color = 'var(--success)';
+  } else if (st.enabled) {
+    localModelsStatus.textContent = 'enabled (idle)';
+    localModelsStatus.style.color = 'var(--text-mute)';
+  } else {
+    localModelsStatus.textContent = 'disabled';
+    localModelsStatus.style.color = 'var(--text-mute)';
+  }
+
+  // Handle llama-server download button state
+  if (localModelsDownloadServer && serverDownloadStatus) {
+    const dl = st.llama_server_download || {};
+    if (dl.status === 'downloading') {
+      localModelsDownloadServer.style.display = 'inline-block';
+      localModelsDownloadServer.disabled = true;
+      const pct = dl.total > 0 ? Math.min(100, Math.round(dl.downloaded / dl.total * 100)) : 0;
+      localModelsDownloadServer.textContent = `Downloading... ${pct}%`;
+      serverDownloadStatus.textContent = dl.file || 'Downloading llama-server...';
+      serverDownloadStatus.style.color = 'var(--text-mute)';
+    } else if (dl.status === 'error') {
+      localModelsDownloadServer.style.display = 'inline-block';
+      localModelsDownloadServer.disabled = false;
+      localModelsDownloadServer.textContent = 'Retry download';
+      serverDownloadStatus.textContent = `Error: ${dl.error}`;
+      serverDownloadStatus.style.color = 'var(--danger)';
+    } else {
+      localModelsDownloadServer.disabled = false;
+      localModelsDownloadServer.textContent = st.llama_server_installed ? 'Re-download llama-server' : 'Download llama-server';
+      localModelsDownloadServer.style.display = 'inline-block';
+      serverDownloadStatus.textContent = st.llama_server_installed ? 'llama-server is ready ✓' : 'llama-server not found';
+      serverDownloadStatus.style.color = st.llama_server_installed ? 'var(--success)' : 'var(--text-mute)';
+    }
+  }
+
+  // Handle whisper-server download button state
+  if (localModelsDownloadWhisper && serverDownloadStatus) {
+    const dl = st.whisper_download || {};
+    if (dl.status === 'downloading') {
+      localModelsDownloadWhisper.style.display = 'inline-block';
+      localModelsDownloadWhisper.disabled = true;
+      const pct = dl.total > 0 ? Math.min(100, Math.round(dl.downloaded / dl.total * 100)) : 0;
+      localModelsDownloadWhisper.textContent = `Downloading... ${pct}%`;
+      serverDownloadStatus.textContent = dl.file || 'Downloading whisper-server...';
+      serverDownloadStatus.style.color = 'var(--text-mute)';
+    } else if (dl.status === 'error') {
+      localModelsDownloadWhisper.style.display = 'inline-block';
+      localModelsDownloadWhisper.disabled = false;
+      localModelsDownloadWhisper.textContent = 'Retry download';
+      serverDownloadStatus.textContent = `Error: ${dl.error}`;
+      serverDownloadStatus.style.color = 'var(--danger)';
+    } else {
+      localModelsDownloadWhisper.disabled = false;
+      localModelsDownloadWhisper.textContent = st.whisper_installed ? 'Re-download whisper-server' : 'Download whisper-server';
+      localModelsDownloadWhisper.style.display = 'inline-block';
+    }
+  }
+
+  // Handle piper download button state
+  if (localModelsDownloadPiper && serverDownloadStatus) {
+    const dl = st.piper_download || {};
+    if (dl.status === 'downloading') {
+      localModelsDownloadPiper.style.display = 'inline-block';
+      localModelsDownloadPiper.disabled = true;
+      const pct = dl.total > 0 ? Math.min(100, Math.round(dl.downloaded / dl.total * 100)) : 0;
+      localModelsDownloadPiper.textContent = `Downloading... ${pct}%`;
+      serverDownloadStatus.textContent = dl.file || 'Downloading piper...';
+      serverDownloadStatus.style.color = 'var(--text-mute)';
+    } else if (dl.status === 'error') {
+      localModelsDownloadPiper.style.display = 'inline-block';
+      localModelsDownloadPiper.disabled = false;
+      localModelsDownloadPiper.textContent = 'Retry download';
+      serverDownloadStatus.textContent = `Error: ${dl.error}`;
+      serverDownloadStatus.style.color = 'var(--danger)';
+    } else {
+      localModelsDownloadPiper.disabled = false;
+      localModelsDownloadPiper.textContent = st.piper_installed ? 'Re-download piper' : 'Download piper';
+      localModelsDownloadPiper.style.display = 'inline-block';
+    }
+  }
+
+  renderLocalModels(st);
+}
+
+let localModelsPoll = null;
+async function loadLocalModels() {
+  try {
+    const st = await api('GET', '/admin/localmodels');
+    applyLocalModelsStatus(st);
+    clearTimeout(localModelsPoll);
+    
+    const isLlamaDl = st.llama_server_download && st.llama_server_download.status === 'downloading';
+    const isWhisperDl = st.whisper_download && st.whisper_download.status === 'downloading';
+    const isPiperDl = st.piper_download && st.piper_download.status === 'downloading';
+    if (isLlamaDl || isWhisperDl || isPiperDl) {
+      localModelsPoll = setTimeout(loadLocalModels, 1000);
+    }
+  } catch (e) {
+    localModelsStatus.textContent = 'error';
+    localModelsStatus.style.color = 'var(--danger)';
+  }
+  loadCatalog();
+}
+
+// ── Recommended models catalog ──────────────────────────────
+let catalogPoll = null;
+let lastDlStatus = {};
+
+function renderCatalog(data) {
+  const wrap = $('#catalog-cards');
+  const dir = data.models_dir || '';
+  $('#catalog-empty').hidden = !!dir;
+  const items = data.items || [];
+
+  wrap.innerHTML = items.map(it => {
+    const dl = it.download || {};
+    const downloading = dl.status === 'downloading';
+    const total = (it.files || []).reduce((a, f) => a + (f.size_bytes || 0), 0);
+    const pct = dl.total > 0 ? Math.min(100, Math.round(dl.downloaded / dl.total * 100)) : 0;
+
+    let action;
+    if (it.installed && !downloading) {
+      action = `<span class="tag" style="color:var(--success)">● installed</span>`;
+    } else if (downloading) {
+      action = `<div class="dl-progress"><div class="dl-bar" style="width:${pct}%"></div></div>
+                <span class="muted xsmall">${pct}% · ${fmtBytes(dl.downloaded)} / ${fmtBytes(dl.total)}</span>`;
+    } else if (dl.status === 'error') {
+      action = `<button class="btn-secondary btn-sm" data-dl="${escHtml(it.id)}">Retry</button>
+                <span class="muted xsmall" style="color:var(--danger)">${escHtml(dl.error || 'failed')}</span>`;
+    } else {
+      action = `<button class="btn-primary btn-sm" data-dl="${escHtml(it.id)}" ${dir ? '' : 'disabled'}>Download · ${fmtBytes(total)}</button>`;
+    }
+
+    const chips = [it.backend === 'cpu' ? 'CPU' : 'GPU', ...(it.tags || [])]
+      .map(t => `<span class="tag">${escHtml(t)}</span>`).join(' ');
+    const rec = it.recommended ? `<span class="tag" style="color:var(--accent)">★ recommended</span>` : '';
+
+    return `<div class="catalog-card">
+      <div class="cc-head"><strong>${escHtml(it.name)}</strong>${rec}</div>
+      <div class="cc-tags">${chips}</div>
+      <p class="muted small cc-desc">${escHtml(it.description)}</p>
+      <div class="muted xsmall cc-meta">id <code>${escHtml(it.model_id)}</code> · ngl ${it.ngpu_layers} · ctx ${it.context_size}</div>
+      <div class="cc-action">${action}</div>
+    </div>`;
+  }).join('');
+
+  wrap.querySelectorAll('[data-dl]').forEach(b => b.addEventListener('click', async () => {
+    b.disabled = true;
+    try {
+      await api('POST', '/admin/localmodels/catalog/download', { id: b.dataset.dl });
+      toast('Download started', 'info');
+      loadCatalog();
+    } catch (err) {
+      toast(err.message, 'error');
+      b.disabled = false;
+    }
+  }));
+}
+
+async function loadCatalog() {
+  let data;
+  try { data = await api('GET', '/admin/localmodels/catalog'); }
+  catch (e) { return; }
+  renderCatalog(data);
+
+  let anyDownloading = false;
+  for (const it of (data.items || [])) {
+    const s = (it.download || {}).status;
+    if (s === 'downloading') anyDownloading = true;
+    if (lastDlStatus[it.id] === 'downloading' && s === 'done') {
+      toast(`${it.name} downloaded`, 'success');
+      api('POST', '/admin/localmodels/scan').then(() => loadLocalModels()).catch(() => {});
+    }
+    lastDlStatus[it.id] = s;
+  }
+  clearTimeout(catalogPoll);
+  if (anyDownloading) catalogPoll = setTimeout(loadCatalog, 1000);
+}
+
+localModelsForm.addEventListener('submit', async e => {
+  e.preventDefault();
+  const fd = new FormData(localModelsForm);
+  const num = k => { const v = (fd.get(k) || '').toString().trim(); return v === '' ? 0 : parseInt(v, 10); };
+  const payload = {
+    enabled:             $('[name=enabled]', localModelsForm).checked,
+    models_dir:          (fd.get('models_dir') || '').toString().trim(),
+    llama_server_path:   (fd.get('llama_server_path') || '').toString().trim(),
+    prefix:              (fd.get('prefix') || '').toString().trim(),
+    port:                num('port'),
+    context_size:        num('context_size'),
+    ngpu_layers:         num('ngpu_layers'),
+
+    whisper_enabled:     $('[name=whisper_enabled]', localModelsForm).checked,
+    whisper_server_path: (fd.get('whisper_server_path') || '').toString().trim(),
+    whisper_port:        num('whisper_port'),
+    whisper_model:       (fd.get('whisper_model') || '').toString().trim(),
+
+    piper_enabled:       $('[name=piper_enabled]', localModelsForm).checked,
+    piper_path:          (fd.get('piper_path') || '').toString().trim(),
+    piper_port:          num('piper_port'),
+    piper_model:         (fd.get('piper_model') || '').toString().trim(),
+  };
+  try {
+    applyLocalModelsStatus(await api('POST', '/admin/localmodels', payload));
+    toast('Local models settings applied', 'success');
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+});
+
+localModelsRescan.addEventListener('click', async () => {
+  try {
+    applyLocalModelsStatus(await api('POST', '/admin/localmodels/scan'));
+    toast('Folder rescanned', 'success');
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+});
+
+localModelsDownloadServer.addEventListener('click', async () => {
+  localModelsDownloadServer.disabled = true;
+  try {
+    await api('POST', '/admin/localmodels/llama-server/download');
+    toast('Llama-server download started', 'info');
+    loadLocalModels();
+  } catch (err) {
+    toast(err.message, 'error');
+    localModelsDownloadServer.disabled = false;
+  }
+});
+
+localModelsDownloadWhisper.addEventListener('click', async () => {
+  localModelsDownloadWhisper.disabled = true;
+  try {
+    await api('POST', '/admin/localmodels/whisper-server/download');
+    toast('Whisper-server download started', 'info');
+    loadLocalModels();
+  } catch (err) {
+    toast(err.message, 'error');
+    localModelsDownloadWhisper.disabled = false;
+  }
+});
+
+localModelsDownloadPiper.addEventListener('click', async () => {
+  localModelsDownloadPiper.disabled = true;
+  try {
+    await api('POST', '/admin/localmodels/piper/download');
+    toast('Piper download started', 'info');
+    loadLocalModels();
+  } catch (err) {
+    toast(err.message, 'error');
+    localModelsDownloadPiper.disabled = false;
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
 //  Render
 // ─────────────────────────────────────────────────────────────
 
@@ -1153,7 +1697,7 @@ function render() {
       <td><strong>${p.name}</strong>${disabledTag}</td>
       <td><span class="tag">${p.type}</span></td>
       <td><code>${p.prefix || ''}</code></td>
-      <td class="small muted">${p.base_url}</td>
+      <td class="small muted">${p.type === 'antigravity' ? (p.project_id ? (discoveredProjects.find(x => x.id === p.project_id)?.path || p.project_id) : 'Auto-detect') : p.base_url}</td>
       <td>${keys}</td>
       <td>${tags}</td>
       <td>
@@ -1320,7 +1864,15 @@ async function loadAll() {
     disabled:    !!p.disabled,
     models:      p.models || [],
     keys:        (p.keys || []).map(k => ({ name: k.name, api_key_ref: k.api_key_ref })),
+    project_id:  p.project_id || '',
+    models_dir:  p.models_dir || '',
+    llama_server_path: p.llama_server_path || '',
+    port:        p.port || 0,
+    context_size: p.context_size || 0,
+    ngpu_layers: p.ngpu_layers || 0,
+    extra_args:  p.extra_args || [],
   }));
+  await loadAntigravityProjects();
   aliases = (al || []).map(a => ({
     name:     a.name,
     strategy: a.strategy,
@@ -1339,4 +1891,5 @@ async function loadAll() {
 loadAll().then(() => loadReliability());
 loadAudit();
 loadLocalAuth();
+loadLocalModels();
 loadHealth();

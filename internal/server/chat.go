@@ -3,7 +3,10 @@ package server
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
+	"mime"
+	"mime/multipart"
 	"net/http"
 
 	"github.com/aralde/operatorlm/internal/providers"
@@ -23,6 +26,76 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleEmbeddings(w http.ResponseWriter, r *http.Request) {
 	s.handleAPI(w, r, providers.KindEmbeddings, false)
+}
+
+func (s *Server) handleSpeech(w http.ResponseWriter, r *http.Request) {
+	s.handleAPI(w, r, providers.KindSpeech, false)
+}
+
+func (s *Server) handleTranscriptions(w http.ResponseWriter, r *http.Request) {
+	s.handleAudioMultipart(w, r, providers.KindTranscriptions)
+}
+
+func (s *Server) handleTranslations(w http.ResponseWriter, r *http.Request) {
+	s.handleAudioMultipart(w, r, providers.KindTranslations)
+}
+
+func (s *Server) handleAudioMultipart(w http.ResponseWriter, r *http.Request, kind providers.Kind) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	limit := s.cfg.MaxRequestBodyBytes()
+	r.Body = http.MaxBytesReader(w, r.Body, limit)
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	model, err := extractMultipartModel(body, r.Header.Get("Content-Type"))
+	if err != nil {
+		http.Error(w, "invalid multipart form: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	s.dispatch(w, r, kind, body, model, false)
+}
+
+func extractMultipartModel(body []byte, contentType string) (string, error) {
+	_, params, err := mime.ParseMediaType(contentType)
+	if err != nil {
+		return "", err
+	}
+	boundary := params["boundary"]
+	if boundary == "" {
+		return "", fmt.Errorf("no boundary in content-type")
+	}
+
+	mr := multipart.NewReader(bytes.NewReader(body), boundary)
+	for {
+		part, err := mr.NextPart()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return "", err
+		}
+		if part.FormName() == "model" {
+			val, err := io.ReadAll(part)
+			if err != nil {
+				return "", err
+			}
+			return string(bytes.TrimSpace(val)), nil
+		}
+	}
+	return "", fmt.Errorf("model field not found in form data")
 }
 
 // handleAPI is the shared entry for /v1/chat/completions, /v1/images/generations,
