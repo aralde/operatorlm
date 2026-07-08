@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -29,8 +31,32 @@ func (g *gemini) Prefix() string   { return g.cfg.Prefix }
 func (g *gemini) Models() []string { return g.cfg.Models }
 
 type oaiMessage struct {
-	Role    string `json:"role"`
-	Content any    `json:"content"`
+	Role      string        `json:"role"`
+	Content   any           `json:"content"`
+	Name      string        `json:"name,omitempty"`
+	ToolCalls []oaiToolCall `json:"tool_calls,omitempty"`
+}
+
+type oaiToolCallFunction struct {
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
+}
+
+type oaiToolCall struct {
+	ID       string              `json:"id"`
+	Type     string              `json:"type"`
+	Function oaiToolCallFunction `json:"function"`
+}
+
+type oaiFunction struct {
+	Name        string          `json:"name"`
+	Description string          `json:"description,omitempty"`
+	Parameters  json.RawMessage `json:"parameters,omitempty"`
+}
+
+type oaiTool struct {
+	Type     string      `json:"type"`
+	Function oaiFunction `json:"function"`
 }
 
 type oaiChatReq struct {
@@ -42,6 +68,8 @@ type oaiChatReq struct {
 	MaxTokens       *int            `json:"max_tokens,omitempty"`
 	ReasoningEffort string          `json:"reasoning_effort,omitempty"`
 	Reasoning       *oaiReasoning   `json:"reasoning,omitempty"`
+	Tools           []oaiTool       `json:"tools,omitempty"`
+	ToolChoice      any             `json:"tool_choice,omitempty"`
 }
 
 type oaiReasoning struct {
@@ -50,9 +78,21 @@ type oaiReasoning struct {
 	Exclude   *bool  `json:"exclude,omitempty"`
 }
 
+type gemFunctionCall struct {
+	Name string          `json:"name"`
+	Args json.RawMessage `json:"args"`
+}
+
+type gemFunctionResponse struct {
+	Name     string          `json:"name"`
+	Response json.RawMessage `json:"response"`
+}
+
 type gemPart struct {
-	Text    string `json:"text"`
-	Thought bool   `json:"thought,omitempty"`
+	Text             string               `json:"text,omitempty"`
+	Thought          bool                 `json:"thought,omitempty"`
+	FunctionCall     *gemFunctionCall     `json:"functionCall,omitempty"`
+	FunctionResponse *gemFunctionResponse `json:"functionResponse,omitempty"`
 }
 
 type gemContent struct {
@@ -72,10 +112,31 @@ type gemGenerationConfig struct {
 	ThinkingConfig  *gemThinkingConfig `json:"thinkingConfig,omitempty"`
 }
 
+type gemFunctionDeclaration struct {
+	Name        string          `json:"name"`
+	Description string          `json:"description,omitempty"`
+	Parameters  json.RawMessage `json:"parameters,omitempty"`
+}
+
+type gemTool struct {
+	FunctionDeclarations []gemFunctionDeclaration `json:"functionDeclarations,omitempty"`
+}
+
+type gemFunctionCallingConfig struct {
+	Mode                 string   `json:"mode,omitempty"`
+	AllowedFunctionNames []string `json:"allowedFunctionNames,omitempty"`
+}
+
+type gemToolConfig struct {
+	FunctionCallingConfig gemFunctionCallingConfig `json:"functionCallingConfig"`
+}
+
 type gemReq struct {
 	Contents          []gemContent         `json:"contents"`
 	SystemInstruction *gemContent          `json:"systemInstruction,omitempty"`
 	GenerationConfig  *gemGenerationConfig `json:"generationConfig,omitempty"`
+	Tools             []gemTool            `json:"tools,omitempty"`
+	ToolConfig        *gemToolConfig       `json:"toolConfig,omitempty"`
 }
 
 type gemRespCandidate struct {
@@ -338,11 +399,57 @@ func translateOAItoGemini(req *oaiChatReq) *gemReq {
 			out.SystemInstruction = &gemContent{Role: "user", Parts: []gemPart{{Text: text}}}
 			continue
 		}
-		role := "user"
+
 		if m.Role == "assistant" {
-			role = "model"
+			if len(m.ToolCalls) > 0 {
+				var parts []gemPart
+				for _, tc := range m.ToolCalls {
+					if tc.Type == "function" {
+						parts = append(parts, gemPart{
+							FunctionCall: &gemFunctionCall{
+								Name: tc.Function.Name,
+								Args: json.RawMessage(tc.Function.Arguments),
+							},
+						})
+					}
+				}
+				out.Contents = append(out.Contents, gemContent{Role: "model", Parts: parts})
+			} else {
+				out.Contents = append(out.Contents, gemContent{Role: "model", Parts: []gemPart{{Text: text}}})
+			}
+			continue
 		}
-		out.Contents = append(out.Contents, gemContent{Role: role, Parts: []gemPart{{Text: text}}})
+
+		if m.Role == "tool" {
+			var respObj json.RawMessage
+			contentStr := contentToString(m.Content)
+
+			var js map[string]any
+			if err := json.Unmarshal([]byte(contentStr), &js); err == nil {
+				respObj = json.RawMessage(contentStr)
+			} else {
+				var jarr []any
+				if err := json.Unmarshal([]byte(contentStr), &jarr); err == nil {
+					wrapped, _ := json.Marshal(map[string]any{"result": jarr})
+					respObj = json.RawMessage(wrapped)
+				} else {
+					wrapped, _ := json.Marshal(map[string]any{"result": contentStr})
+					respObj = json.RawMessage(wrapped)
+				}
+			}
+
+			part := gemPart{
+				FunctionResponse: &gemFunctionResponse{
+					Name:     m.Name,
+					Response: respObj,
+				},
+			}
+			out.Contents = append(out.Contents, gemContent{Role: "function", Parts: []gemPart{part}})
+			continue
+		}
+
+		// Default to user role
+		out.Contents = append(out.Contents, gemContent{Role: "user", Parts: []gemPart{{Text: text}}})
 	}
 
 	thinking := buildGeminiThinkingConfig(req)
@@ -354,7 +461,69 @@ func translateOAItoGemini(req *oaiChatReq) *gemReq {
 			ThinkingConfig:  thinking,
 		}
 	}
+
+	if len(req.Tools) > 0 {
+		var decls []gemFunctionDeclaration
+		for _, t := range req.Tools {
+			if t.Type == "function" {
+				decls = append(decls, gemFunctionDeclaration{
+					Name:        t.Function.Name,
+					Description: t.Function.Description,
+					Parameters:  t.Function.Parameters,
+				})
+			}
+		}
+		if len(decls) > 0 {
+			out.Tools = []gemTool{{FunctionDeclarations: decls}}
+		}
+	}
+
+	if req.ToolChoice != nil {
+		out.ToolConfig = mapToolChoice(req.ToolChoice)
+	}
+
 	return out
+}
+
+func mapToolChoice(choice any) *gemToolConfig {
+	if choice == nil {
+		return nil
+	}
+	switch v := choice.(type) {
+	case string:
+		switch strings.ToLower(v) {
+		case "none":
+			return &gemToolConfig{
+				FunctionCallingConfig: gemFunctionCallingConfig{
+					Mode: "NONE",
+				},
+			}
+		case "auto":
+			return &gemToolConfig{
+				FunctionCallingConfig: gemFunctionCallingConfig{
+					Mode: "AUTO",
+				},
+			}
+		case "required", "any":
+			return &gemToolConfig{
+				FunctionCallingConfig: gemFunctionCallingConfig{
+					Mode: "ANY",
+				},
+			}
+		}
+	case map[string]any:
+		if fn, ok := v["function"].(map[string]any); ok {
+			if name, ok := fn["name"].(string); ok && name != "" {
+				return &gemToolConfig{
+					FunctionCallingConfig: gemFunctionCallingConfig{
+						Mode:                 "ANY",
+						AllowedFunctionNames: []string{name},
+					},
+				}
+			}
+		}
+	}
+	return nil
 }
 
 // buildGeminiThinkingConfig maps OpenAI/OpenRouter-style reasoning hints onto
@@ -428,12 +597,30 @@ func contentToString(c any) string {
 
 func translateGemToOAI(g *gemResp, model string, streaming bool) map[string]any {
 	var content, reasoning string
+	var toolCalls []any
 	finish := ""
 	if len(g.Candidates) > 0 {
 		c := g.Candidates[0]
 		for _, p := range c.Content.Parts {
 			if p.Thought {
 				reasoning += p.Text
+			} else if p.FunctionCall != nil {
+				argsStr := "{}"
+				if len(p.FunctionCall.Args) > 0 {
+					argsStr = string(p.FunctionCall.Args)
+				}
+				tc := map[string]any{
+					"id":   "call_" + newID(),
+					"type": "function",
+					"function": map[string]any{
+						"name":      p.FunctionCall.Name,
+						"arguments": argsStr,
+					},
+				}
+				if streaming {
+					tc["index"] = len(toolCalls)
+				}
+				toolCalls = append(toolCalls, tc)
 			} else {
 				content += p.Text
 			}
@@ -452,10 +639,11 @@ func translateGemToOAI(g *gemResp, model string, streaming bool) map[string]any 
 		"role":    "assistant",
 		"content": content,
 	}
+	if len(toolCalls) > 0 {
+		payload["tool_calls"] = toolCalls
+		payload["content"] = nil
+	}
 	if reasoning != "" {
-		// Use reasoning_content — the de-facto field used by DeepSeek, xAI Grok,
-		// Mistral, NVIDIA NIM. Mirror it under reasoning too so OpenRouter-style
-		// clients pick it up without changes.
 		payload["reasoning_content"] = reasoning
 		payload["reasoning"] = reasoning
 	}
@@ -463,7 +651,9 @@ func translateGemToOAI(g *gemResp, model string, streaming bool) map[string]any 
 		"index":    0,
 		choiceKey: payload,
 	}
-	if finish != "" && finish != "finish_reason_unspecified" {
+	if len(toolCalls) > 0 {
+		choice["finish_reason"] = "tool_calls"
+	} else if finish != "" && finish != "finish_reason_unspecified" {
 		choice["finish_reason"] = mapFinishReason(finish)
 	}
 
@@ -487,4 +677,10 @@ func mapFinishReason(g string) string {
 	default:
 		return "stop"
 	}
+}
+
+func newID() string {
+	b := make([]byte, 8)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
 }
