@@ -821,6 +821,16 @@
                 <label>Piper model voice (.onnx)</label>
                 <input name="piper_model" type="text" placeholder="es_ES-davefx-medium.onnx" spellcheck="false" />
               </div>
+              <div class="field">
+                <label>Download more voices <span class="help-pop" data-help="Official Piper voice catalog: pick a language and regional variant, then download it into the models folder. Use the downloaded voice per request via the OpenAI `voice` field, or set it as the default above.">?</span></label>
+                <div style="display:flex; gap:.5rem; align-items:center;">
+                  <select id="piper-voice-select" style="flex:1; min-width:0;">
+                    <option value="">Loading voice catalog…</option>
+                  </select>
+                  <button type="button" id="piper-voice-download" class="btn-secondary">Download</button>
+                </div>
+                <span id="piper-voice-status" class="muted small"></span>
+              </div>
             </div>
 
             <div class="actions">

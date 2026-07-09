@@ -540,30 +540,36 @@ func (e *LocalEngine) startPiperServer(port int, piperBin, modelsDir string) err
 		var req struct {
 			Model string `json:"model"`
 			Input string `json:"input"`
+			Voice string `json:"voice"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "invalid json: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 
-		// Resolve the voice: the requested model if it maps to a .onnx file
-		// under the models dir, otherwise the configured default voice.
-		voice := req.Model
-		if voice != "" && !strings.HasSuffix(voice, ".onnx") {
-			voice += ".onnx"
+		// Resolve the voice, OpenAI-style: the `voice` field first (an
+		// installed .onnx stem, e.g. es_AR-daniela-high), then the model
+		// name, then the configured default. OpenAI voice names like
+		// "alloy" won't resolve to a file and fall through to the default.
+		e.dataMu.RLock()
+		defModel := e.cfg.PiperModel
+		e.dataMu.RUnlock()
+		var fullModelPath string
+		ok := false
+		for _, cand := range []string{req.Voice, req.Model, defModel} {
+			if cand == "" {
+				continue
+			}
+			if !strings.HasSuffix(cand, ".onnx") {
+				cand += ".onnx"
+			}
+			if fullModelPath, ok = findModelFile(modelsDir, cand); ok {
+				break
+			}
 		}
-		fullModelPath, ok := findModelFile(modelsDir, voice)
 		if !ok {
-			e.dataMu.RLock()
-			defModel := e.cfg.PiperModel
-			e.dataMu.RUnlock()
-			if defModel != "" && !strings.HasSuffix(defModel, ".onnx") {
-				defModel += ".onnx"
-			}
-			if fullModelPath, ok = findModelFile(modelsDir, defModel); !ok {
-				http.Error(w, fmt.Sprintf("no piper voice found: neither %q nor the default %q exist under %s", req.Model, defModel, modelsDir), http.StatusBadRequest)
-				return
-			}
+			http.Error(w, fmt.Sprintf("no piper voice found: none of voice=%q, model=%q or the default %q exist under %s", req.Voice, req.Model, defModel, modelsDir), http.StatusBadRequest)
+			return
 		}
 
 		wavBytes, err := runPiperCLI(piperBin, fullModelPath, req.Input)

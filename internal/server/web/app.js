@@ -979,19 +979,32 @@ async function copyText(text, btn) {
 function ttsExampleCard() {
   const card = document.createElement('div');
   card.className = 'example';
+  const lmc = localModelsConfig || {};
+  const defVoice = (lmc.piper_model || '').replace(/\.onnx$/i, '');
+  const voices = lmc.piper_voices || [];
+  const voiceOptions =
+    `<option value="">default${defVoice ? ` (${defVoice})` : ''}</option>` +
+    voices.filter(v => v !== defVoice)
+          .map(v => `<option value="${v}">${v}</option>`).join('');
   card.innerHTML = `
     <div class="example-head">
       <div class="example-name">tts-1</div>
       <div class="example-meta"><span class="tag">speech · Piper</span></div>
     </div>
     <pre class="curl-pre"></pre>
+    <select class="tts-voice" style="width:100%; margin:.4rem 0;" title="Voice (installed Piper voices; download more in Local models)">${voiceOptions}</select>
     <audio class="tts-audio" controls style="width:100%; margin:.4rem 0; display:none;"></audio>
     <div class="example-actions">
       <button type="button" class="btn-secondary copy-btn">Copy</button>
       <button type="button" class="btn-primary run-btn">Run</button>
     </div>`;
+  const buildTtsPayload = () => {
+    const p = { model: 'tts-1', input: tryPromptIn.value || 'Hola, esto es una prueba.' };
+    p.voice = $('.tts-voice', card).value || 'default';
+    return p;
+  };
   const buildTtsCurl = () => {
-    const body = JSON.stringify({ model: 'tts-1', input: tryPromptIn.value || 'Hola, esto es una prueba.', voice: 'default' });
+    const body = JSON.stringify(buildTtsPayload());
     return `curl http://${location.host}/v1/audio/speech \\
   -H "Content-Type: application/json" \\
   -d '${body.replace(/'/g, "'\\''")}' \\
@@ -1000,12 +1013,13 @@ function ttsExampleCard() {
   const updateCurl = () => $('.curl-pre', card).textContent = buildTtsCurl();
   updateCurl();
   tryPromptIn.addEventListener('input', updateCurl);
+  $('.tts-voice', card).addEventListener('change', updateCurl);
   $('.copy-btn', card).addEventListener('click', e => copyText(buildTtsCurl(), e.currentTarget));
-  $('.run-btn',  card).addEventListener('click', () => runTTS(card, buildTtsCurl()));
+  $('.run-btn',  card).addEventListener('click', () => runTTS(card, buildTtsCurl(), buildTtsPayload()));
   return card;
 }
 
-async function runTTS(card, curl) {
+async function runTTS(card, curl, payload) {
   const model = 'tts-1';
   setRunningMeta(model, false);
   $$('.result-tab').forEach(b => b.classList.toggle('active', b.dataset.rt === 'content'));
@@ -1014,7 +1028,7 @@ async function runTTS(card, curl) {
     const res = await fetch('/v1/audio/speech', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model, input: tryPromptIn.value || 'Hola, esto es una prueba.', voice: 'default' }),
+      body: JSON.stringify(payload),
     });
     const ms = Math.round(performance.now() - t0);
     setDoneMeta(model, false, res.status, ms);
@@ -1135,7 +1149,7 @@ function renderTryIt() {
   const audioHost = document.getElementById('tryit-audio');
   if (audioCard && audioHost) {
     const lmc = localModelsConfig || {};
-    const wantKey = `${!!lmc.piper_enabled}|${!!lmc.whisper_enabled}`;
+    const wantKey = `${!!lmc.piper_enabled}|${!!lmc.whisper_enabled}|${lmc.piper_model || ''}|${(lmc.piper_voices || []).join(',')}`;
     if (audioHost.dataset.built !== wantKey) {
       audioHost.dataset.built = wantKey;
       audioHost.innerHTML = '';
@@ -1637,6 +1651,7 @@ async function loadLocalModels() {
     localModelsStatus.style.color = 'var(--danger)';
   }
   loadCatalog();
+  loadPiperVoices();
 }
 
 // ── Recommended models catalog ──────────────────────────────
@@ -1789,6 +1804,90 @@ localModelsDownloadPiper.addEventListener('click', async () => {
     localModelsDownloadPiper.disabled = false;
   }
 });
+
+// ── Piper voice catalog (languages / regional variants) ─────
+const piperVoiceSelect      = $('#piper-voice-select');
+const piperVoiceDownloadBtn = $('#piper-voice-download');
+const piperVoiceStatus      = $('#piper-voice-status');
+let piperVoicesLoaded = false;
+let piperVoicePoll    = null;
+
+async function loadPiperVoices(force = false) {
+  if (!piperVoiceSelect || (piperVoicesLoaded && !force)) return;
+  try {
+    const voices = await api('GET', '/admin/localmodels/piper/voices');
+    piperVoicesLoaded = true;
+    const prev = piperVoiceSelect.value;
+    piperVoiceSelect.innerHTML = '<option value="">— Pick a voice to download —</option>';
+    const groups = new Map();
+    for (const v of voices) {
+      const label = v.country ? `${v.lang_name} — ${v.country}` : (v.lang_name || v.language);
+      if (!groups.has(label)) {
+        const og = document.createElement('optgroup');
+        og.label = label;
+        groups.set(label, og);
+        piperVoiceSelect.appendChild(og);
+      }
+      const o = document.createElement('option');
+      o.value = v.key;
+      const size  = v.size_bytes ? ` · ${fmtBytes(v.size_bytes)}` : '';
+      const state = v.installed ? ' · installed ✓'
+                  : (v.download && v.download.status === 'downloading' ? ' · downloading…' : '');
+      o.textContent = `${v.language} · ${v.speaker} (${v.quality})${size}${state}`;
+      groups.get(label).appendChild(o);
+    }
+    if (prev) piperVoiceSelect.value = prev;
+  } catch (e) {
+    piperVoiceSelect.innerHTML = '<option value="">Voice catalog unavailable (offline?)</option>';
+  }
+}
+
+if (piperVoiceDownloadBtn) {
+  piperVoiceDownloadBtn.addEventListener('click', async () => {
+    const key = piperVoiceSelect.value;
+    if (!key) { toast('Pick a voice first', 'error'); return; }
+    piperVoiceDownloadBtn.disabled = true;
+    piperVoiceStatus.style.color = '';
+    piperVoiceStatus.textContent = `Starting download of ${key}…`;
+    try {
+      await api('POST', '/admin/localmodels/piper/voices/download', { key });
+      pollPiperVoice(key);
+    } catch (e) {
+      toast(e.message, 'error');
+      piperVoiceStatus.textContent = '';
+      piperVoiceDownloadBtn.disabled = false;
+    }
+  });
+}
+
+function pollPiperVoice(key) {
+  clearTimeout(piperVoicePoll);
+  piperVoicePoll = setTimeout(async () => {
+    try {
+      const voices = await api('GET', '/admin/localmodels/piper/voices');
+      const v = voices.find(x => x.key === key);
+      const dl = (v && v.download) || {};
+      if (dl.status === 'downloading') {
+        const pct = dl.total > 0 ? Math.min(100, Math.round(dl.downloaded / dl.total * 100)) : 0;
+        piperVoiceStatus.textContent = `Downloading ${key}… ${pct}% (${fmtBytes(dl.downloaded || 0)} / ${fmtBytes(dl.total || 0)})`;
+        pollPiperVoice(key);
+        return;
+      }
+      piperVoiceDownloadBtn.disabled = false;
+      if (dl.status === 'error') {
+        piperVoiceStatus.textContent = `Error: ${dl.error}`;
+        piperVoiceStatus.style.color = 'var(--danger)';
+      } else {
+        piperVoiceStatus.textContent = `${key} installed ✓ — pick it in Try it, or set it as the default voice above`;
+        piperVoiceStatus.style.color = 'var(--success)';
+        loadPiperVoices(true);
+        loadLocalModels(); // refreshes piper_voices → Try it dropdown
+      }
+    } catch (_) {
+      piperVoiceDownloadBtn.disabled = false;
+    }
+  }, 1000);
+}
 
 // ─────────────────────────────────────────────────────────────
 //  Render
