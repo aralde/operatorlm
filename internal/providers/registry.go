@@ -65,6 +65,10 @@ func (r *Registry) Reload() {
 				KindTranscriptions: "/inference",
 				KindTranslations:   "/inference",
 			},
+			// OpenAI transcribes in the source language; whisper.cpp defaults
+			// to language=en which translates instead. Only applied when the
+			// client didn't send its own language field.
+			defaultFormFields: map[string]string{"language": "auto"},
 		}
 	}
 	if lm.PiperEnabled {

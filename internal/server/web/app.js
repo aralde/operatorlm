@@ -962,6 +962,152 @@ function exampleCard(model, badgeText, badgeClass) {
   return card;
 }
 
+// ── Local audio examples (tts-1 / whisper-1) ────────────────
+let lastTtsBlob = null; // last TTS output, reusable as whisper input
+
+async function copyText(text, btn) {
+  try {
+    await navigator.clipboard.writeText(text);
+    const original = btn.textContent;
+    btn.textContent = 'Copied ✓';
+    setTimeout(() => { btn.textContent = original; }, 1400);
+  } catch (e) {
+    toast('Clipboard failed: ' + e.message, 'error');
+  }
+}
+
+function ttsExampleCard() {
+  const card = document.createElement('div');
+  card.className = 'example';
+  card.innerHTML = `
+    <div class="example-head">
+      <div class="example-name">tts-1</div>
+      <div class="example-meta"><span class="tag">speech · Piper</span></div>
+    </div>
+    <pre class="curl-pre"></pre>
+    <audio class="tts-audio" controls style="width:100%; margin:.4rem 0; display:none;"></audio>
+    <div class="example-actions">
+      <button type="button" class="btn-secondary copy-btn">Copy</button>
+      <button type="button" class="btn-primary run-btn">Run</button>
+    </div>`;
+  const buildTtsCurl = () => {
+    const body = JSON.stringify({ model: 'tts-1', input: tryPromptIn.value || 'Hola, esto es una prueba.', voice: 'default' });
+    return `curl http://${location.host}/v1/audio/speech \\
+  -H "Content-Type: application/json" \\
+  -d '${body.replace(/'/g, "'\\''")}' \\
+  -o speech.wav`;
+  };
+  const updateCurl = () => $('.curl-pre', card).textContent = buildTtsCurl();
+  updateCurl();
+  tryPromptIn.addEventListener('input', updateCurl);
+  $('.copy-btn', card).addEventListener('click', e => copyText(buildTtsCurl(), e.currentTarget));
+  $('.run-btn',  card).addEventListener('click', () => runTTS(card, buildTtsCurl()));
+  return card;
+}
+
+async function runTTS(card, curl) {
+  const model = 'tts-1';
+  setRunningMeta(model, false);
+  $$('.result-tab').forEach(b => b.classList.toggle('active', b.dataset.rt === 'content'));
+  const t0 = performance.now();
+  try {
+    const res = await fetch('/v1/audio/speech', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model, input: tryPromptIn.value || 'Hola, esto es una prueba.', voice: 'default' }),
+    });
+    const ms = Math.round(performance.now() - t0);
+    setDoneMeta(model, false, res.status, ms);
+    if (!res.ok) {
+      const err = await res.text();
+      lastResult = { content: err, raw: err, curl };
+      renderResultBody('content');
+      return;
+    }
+    const blob = await res.blob();
+    lastTtsBlob = blob;
+    const audio = $('.tts-audio', card);
+    if (audio.src) URL.revokeObjectURL(audio.src);
+    audio.src = URL.createObjectURL(blob);
+    audio.style.display = 'block';
+    const content = `Audio generated (${(blob.size / 1024).toFixed(0)} KiB WAV). ` +
+      `Press play on the tts-1 card. whisper-1 will reuse it as input when no file is chosen.`;
+    lastResult = { content, raw: `(binary audio, ${blob.size} bytes)`, curl };
+    renderResultBody('content');
+  } catch (e) {
+    const ms = Math.round(performance.now() - t0);
+    resultMeta.innerHTML = `
+      <span class="pill err">network</span>
+      <code class="small">${model}</code>
+      <span class="muted small">${ms} ms</span>
+    `;
+    lastResult = { content: e.message, raw: e.message, curl };
+    renderResultBody('content');
+  }
+}
+
+function sttExampleCard() {
+  const card = document.createElement('div');
+  card.className = 'example';
+  card.innerHTML = `
+    <div class="example-head">
+      <div class="example-name">whisper-1</div>
+      <div class="example-meta"><span class="tag">transcription · whisper.cpp</span></div>
+    </div>
+    <pre class="curl-pre"></pre>
+    <input type="file" class="stt-file" accept="audio/*,.wav,.mp3,.m4a,.ogg,.flac" style="margin:.4rem 0; width:100%;" />
+    <div class="example-actions">
+      <button type="button" class="btn-secondary copy-btn">Copy</button>
+      <button type="button" class="btn-primary run-btn">Run</button>
+    </div>`;
+  const sttCurl = `curl http://${location.host}/v1/audio/transcriptions \\
+  -F model=whisper-1 \\
+  -F file=@audio.wav`;
+  $('.curl-pre', card).textContent = sttCurl;
+  $('.copy-btn', card).addEventListener('click', e => copyText(sttCurl, e.currentTarget));
+  $('.run-btn',  card).addEventListener('click', () => runSTT(card, sttCurl));
+  return card;
+}
+
+async function runSTT(card, curl) {
+  const model = 'whisper-1';
+  const picked = $('.stt-file', card).files[0];
+  const file = picked || (lastTtsBlob ? new File([lastTtsBlob], 'tts-output.wav', { type: 'audio/wav' }) : null);
+  if (!file) {
+    toast('Choose an audio file, or run tts-1 first to reuse its output', 'error');
+    return;
+  }
+  setRunningMeta(model, false);
+  $$('.result-tab').forEach(b => b.classList.toggle('active', b.dataset.rt === 'content'));
+  const t0 = performance.now();
+  try {
+    const fd = new FormData();
+    fd.append('model', model);
+    fd.append('file', file, file.name || 'audio.wav');
+    const res = await fetch('/v1/audio/transcriptions', { method: 'POST', body: fd });
+    const raw = await res.text();
+    const ms = Math.round(performance.now() - t0);
+    setDoneMeta(model, false, res.status, ms);
+    let content = raw;
+    try {
+      const obj = JSON.parse(raw);
+      if (typeof obj?.text === 'string') content = `“${obj.text.trim()}”\n\n(source: ${picked ? file.name : 'last tts-1 output'})`;
+      else if (obj?.error) content = JSON.stringify(obj.error, null, 2);
+    } catch (_) { /* keep raw */ }
+    lastResult = { content, raw, curl };
+    renderResultBody('content');
+  } catch (e) {
+    const ms = Math.round(performance.now() - t0);
+    resultMeta.innerHTML = `
+      <span class="pill err">network</span>
+      <code class="small">${model}</code>
+      <span class="muted small">${ms} ms</span>
+    `;
+    lastResult = { content: e.message, raw: e.message, curl };
+    renderResultBody('content');
+  }
+}
+
 function renderTryIt() {
   // Slugs: every (provider.prefix + model) pair from configured providers
   slugsHost.innerHTML = '';
@@ -982,6 +1128,24 @@ function renderTryIt() {
   }
   slugsCount.textContent = slugCount;
   slugsEmpty.hidden = slugCount > 0;
+
+  // Local audio (whisper/piper sidecars) — only rebuild when the set of
+  // enabled sidecars changes, so a running <audio> player survives re-renders.
+  const audioCard = document.getElementById('tryit-audio-card');
+  const audioHost = document.getElementById('tryit-audio');
+  if (audioCard && audioHost) {
+    const lmc = localModelsConfig || {};
+    const wantKey = `${!!lmc.piper_enabled}|${!!lmc.whisper_enabled}`;
+    if (audioHost.dataset.built !== wantKey) {
+      audioHost.dataset.built = wantKey;
+      audioHost.innerHTML = '';
+      let audioCount = 0;
+      if (lmc.piper_enabled)   { audioHost.appendChild(ttsExampleCard()); audioCount++; }
+      if (lmc.whisper_enabled) { audioHost.appendChild(sttExampleCard()); audioCount++; }
+      document.getElementById('tryit-audio-count').textContent = audioCount;
+      audioCard.hidden = audioCount === 0;
+    }
+  }
 
   // Aliases
   aliasesHost.innerHTML = '';

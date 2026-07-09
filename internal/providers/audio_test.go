@@ -43,7 +43,7 @@ func TestRewriteMultipartModel(t *testing.T) {
 	body := buf.Bytes()
 	contentType := mw.FormDataContentType()
 
-	rewritten, newContentType, err := rewriteMultipartModel(body, contentType, "new-model")
+	rewritten, newContentType, err := rewriteMultipartModel(body, contentType, "new-model", map[string]string{"language": "auto"})
 	if err != nil {
 		t.Fatalf("rewriteMultipartModel failed: %v", err)
 	}
@@ -57,5 +57,16 @@ func TestRewriteMultipartModel(t *testing.T) {
 	}
 	if newContentType == "" {
 		t.Errorf("expected non-empty newContentType")
+	}
+	// Default fields are appended only when absent
+	if !bytes.Contains(rewritten, []byte(`name="language"`)) || !bytes.Contains(rewritten, []byte("auto")) {
+		t.Errorf("expected default language field to be appended")
+	}
+	again, _, err := rewriteMultipartModel(rewritten, newContentType, "new-model", map[string]string{"language": "es"})
+	if err != nil {
+		t.Fatalf("second rewrite failed: %v", err)
+	}
+	if bytes.Contains(again, []byte(`>es<`)) || bytes.Count(again, []byte(`name="language"`)) != 1 {
+		t.Errorf("existing language field must not be duplicated or overridden")
 	}
 }
