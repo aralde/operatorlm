@@ -22,6 +22,9 @@ type openAILike struct {
 	// bodyTransform, when set, rewrites the JSON request body after the model
 	// field is rewritten. Used by OpenRouter to inject provider-routing prefs.
 	bodyTransform func([]byte) []byte
+	// pathOverrides remaps the upstream path for a request kind. Used by the
+	// whisper.cpp sidecar, whose transcription endpoint is /inference.
+	pathOverrides map[Kind]string
 }
 
 func newOpenAILike(cfg config.Provider, extraHeaders map[string]string) Provider {
@@ -62,6 +65,9 @@ func (o *openAILike) BuildRequest(ctx context.Context, kind Kind, body []byte, a
 		path = "/audio/transcriptions"
 	case KindTranslations:
 		path = "/audio/translations"
+	}
+	if override, ok := o.pathOverrides[kind]; ok {
+		path = override
 	}
 	url := strings.TrimRight(o.cfg.BaseURL, "/") + path
 

@@ -41,12 +41,16 @@ func (s *Server) handleProviders(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "name and type required", http.StatusBadRequest)
 			return
 		}
+		if p.Type == "llama-server" {
+			http.Error(w, "the llama-server provider type was replaced by the built-in engine: configure it in the Local models tab", http.StatusBadRequest)
+			return
+		}
 		applyDefaults(&p.Provider)
-		if p.BaseURL == "" && p.Type != "chatgpt-codex" && p.Type != "antigravity" && p.Type != "llama-server" {
+		if p.BaseURL == "" && p.Type != "chatgpt-codex" && p.Type != "antigravity" {
 			http.Error(w, "base_url required", http.StatusBadRequest)
 			return
 		}
-		if p.APIKeyRef == "" && p.Type != "llama-server" {
+		if p.APIKeyRef == "" {
 			p.APIKeyRef = "operatorlm:" + p.Name
 		}
 		if p.APIKey != "" {
@@ -213,21 +217,30 @@ func (s *Server) handleAliases(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "name required", http.StatusBadRequest)
 			return
 		}
-		if a.Strategy == "" {
+		if a.Strategy == "" || a.Strategy == "fallback" {
 			a.Strategy = "order"
 		}
 		if a.Strategy != "order" {
 			http.Error(w, "only strategy 'order' is supported in v1", http.StatusBadRequest)
 			return
 		}
-		// Validate targets reference existing providers/keys.
+		// Validate targets reference existing providers/keys. "local",
+		// "whisper-local" and "piper-local" are built-in (local engine).
+		builtin := map[string]bool{"local": true, "whisper-local": true, "piper-local": true}
 		for i, t := range a.Targets {
+			if builtin[t.Provider] {
+				if t.UpstreamModel == "" {
+					http.Error(w, "target #"+itoa(i)+": upstream_model required", http.StatusBadRequest)
+					return
+				}
+				continue
+			}
 			p, ok := s.cfg.FindProvider(t.Provider)
 			if !ok {
 				http.Error(w, "target #"+itoa(i)+": provider not found", http.StatusBadRequest)
 				return
 			}
-			if p.KeyRef(t.Key) == "" && p.Type != "llama-server" && p.Type != "llamacpp" {
+			if p.KeyRef(t.Key) == "" && p.Type != "llamacpp" {
 				http.Error(w, "target #"+itoa(i)+": key not found", http.StatusBadRequest)
 				return
 			}
@@ -501,11 +514,10 @@ var providerDefaults = map[string]config.Provider{
 	"mistral":      {BaseURL: "https://api.mistral.ai/v1", Prefix: "mistral/"},
 	"bedrock":      {BaseURL: "https://bedrock-runtime.us-east-1.amazonaws.com/openai/v1", Prefix: "bedrock/"},
 	"azure-openai": {Prefix: "azure/"},
-	"custom":       {Prefix: "local/"},
+	"custom":       {Prefix: "custom/"},
 	// chatgpt-codex uses a hardcoded base URL inside the provider; no API key.
 	"chatgpt-codex": {Prefix: "chatgpt/"},
 	"antigravity":   {Prefix: "antigravity/"},
-	"llama-server":  {Prefix: "local/", Port: 8081, ContextSize: 4096, NGPULayers: 20},
 }
 
 func applyDefaults(p *config.Provider) {
@@ -518,17 +530,6 @@ func applyDefaults(p *config.Provider) {
 	}
 	if p.Prefix == "" {
 		p.Prefix = d.Prefix
-	}
-	if p.Type == "llama-server" {
-		if p.Port == 0 {
-			p.Port = d.Port
-		}
-		if p.ContextSize == 0 {
-			p.ContextSize = d.ContextSize
-		}
-		if p.NGPULayers == 0 {
-			p.NGPULayers = d.NGPULayers
-		}
 	}
 }
 
@@ -578,7 +579,7 @@ func (s *Server) handleProbe(w http.ResponseWriter, r *http.Request) {
 			}
 			secret, err := config.GetSecret(ref)
 			if err != nil || secret == "" {
-				if tmp.Type != "custom" && tmp.Type != "llama-server" {
+				if tmp.Type != "custom" {
 					http.Error(w, "no stored API key for provider", http.StatusNotFound)
 					return
 				}
@@ -588,12 +589,12 @@ func (s *Server) handleProbe(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	applyDefaults(&tmp)
-	if tmp.BaseURL == "" && tmp.Type != "antigravity" && tmp.Type != "llama-server" {
+	if tmp.BaseURL == "" && tmp.Type != "antigravity" {
 		http.Error(w, "base_url required", http.StatusBadRequest)
 		return
 	}
-	// API key is optional for custom/local providers (Ollama, LM Studio, etc.), antigravity, and llama-server.
-	if apiKey == "" && tmp.Type != "custom" && tmp.Type != "antigravity" && tmp.Type != "llama-server" {
+	// API key is optional for custom/local providers (Ollama, LM Studio, etc.) and antigravity.
+	if apiKey == "" && tmp.Type != "custom" && tmp.Type != "antigravity" {
 		http.Error(w, "api_key required", http.StatusBadRequest)
 		return
 	}

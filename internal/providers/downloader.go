@@ -371,7 +371,7 @@ func (d *Downloader) StartWhisperServer(destDir string) (DownloadState, error) {
 		return DownloadState{}, fmt.Errorf("automatic download of whisper-server is only supported on Windows. On macOS/Linux, please compile or install whisper.cpp manually")
 	}
 
-	url := "https://github.com/ggerganov/whisper.cpp/releases/download/v1.7.1/whisper-v1.7.1-bin-win-msvc-x64.zip"
+	url := "https://github.com/ggml-org/whisper.cpp/releases/download/v1.9.1/whisper-bin-x64.zip"
 
 	d.mu.Lock()
 	if st, ok := d.states["whisper-server"]; ok && st.Status == "downloading" {
@@ -417,11 +417,13 @@ func (d *Downloader) runWhisperServer(url string, destDir string, st *DownloadSt
 
 	os.Remove(zipPath)
 
-	// In whisper.cpp zip, the binary is server.exe. Rename it to whisper-server.exe
-	oldPath := filepath.Join(destDir, "server.exe")
-	newPath := filepath.Join(destDir, "whisper-server.exe")
-	if _, err := os.Stat(oldPath); err == nil {
-		_ = os.Rename(oldPath, newPath)
+	// Zip layouts vary across whisper.cpp releases: the server binary may be
+	// whisper-server.exe or server.exe, at the root or in a subfolder (e.g.
+	// Release/). Normalize to <destDir>/whisper-server.exe with its sibling
+	// DLLs alongside.
+	if err := normalizeExtractedBinary(destDir, []string{"whisper-server.exe", "server.exe"}, "whisper-server.exe"); err != nil {
+		d.fail(st, err)
+		return
 	}
 
 	d.set(st, func(s *DownloadState) {
@@ -430,6 +432,52 @@ func (d *Downloader) runWhisperServer(url string, destDir string, st *DownloadSt
 		s.File = ""
 	})
 	log.Printf("local engine: whisper-server download and extraction complete -> %s", destDir)
+}
+
+// normalizeExtractedBinary finds the first of names under root (searching
+// recursively) and ensures it ends up as root/finalName. When the binary was
+// extracted into a subfolder, every file of that folder is moved up to root
+// so the exe keeps its DLLs next to it.
+func normalizeExtractedBinary(root string, names []string, finalName string) error {
+	var foundPath string
+	_ = filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil
+		}
+		for _, n := range names {
+			if strings.EqualFold(d.Name(), n) {
+				foundPath = p
+				return filepath.SkipAll
+			}
+		}
+		return nil
+	})
+	if foundPath == "" {
+		return fmt.Errorf("archive did not contain any of %v", names)
+	}
+	srcDir := filepath.Dir(foundPath)
+	if srcDir != root {
+		entries, err := os.ReadDir(srcDir)
+		if err != nil {
+			return err
+		}
+		for _, e := range entries {
+			if e.IsDir() {
+				continue
+			}
+			if err := os.Rename(filepath.Join(srcDir, e.Name()), filepath.Join(root, e.Name())); err != nil {
+				return err
+			}
+		}
+		foundPath = filepath.Join(root, filepath.Base(foundPath))
+	}
+	final := filepath.Join(root, finalName)
+	if !strings.EqualFold(foundPath, final) {
+		if err := os.Rename(foundPath, final); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // StartPiper starts downloading the appropriate piper binary.
@@ -441,7 +489,7 @@ func (d *Downloader) StartPiper(destDir string) (DownloadState, error) {
 		return DownloadState{}, fmt.Errorf("automatic download of piper is only supported on Windows. On macOS/Linux, please install piper manually")
 	}
 
-	url := "https://github.com/rhasspy/piper/releases/download/v1.2.0/piper_windows_amd64.zip"
+	url := "https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_windows_amd64.zip"
 
 	d.mu.Lock()
 	if st, ok := d.states["piper"]; ok && st.Status == "downloading" {

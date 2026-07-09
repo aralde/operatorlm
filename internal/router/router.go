@@ -110,7 +110,8 @@ func (r *Router) Resolve(model string) ([]Attempt, error) {
 	// Built-in local engine: models live on disk (not in [[providers]]), so
 	// resolve the local prefix directly. The engine validates that the model
 	// file exists when it tries to start.
-	if lm := r.cfg.GetLocalModels(); lm.Enabled && lm.Prefix != "" && strings.HasPrefix(model, lm.Prefix) {
+	lm := r.cfg.GetLocalModels()
+	if lm.Enabled && lm.Prefix != "" && strings.HasPrefix(model, lm.Prefix) {
 		return []Attempt{{
 			Provider: config.Provider{
 				Name:   "local",
@@ -122,7 +123,43 @@ func (r *Router) Resolve(model string) ([]Attempt, error) {
 		}}, nil
 	}
 
+	// Built-in local audio: OpenAI-convention model names route to the whisper
+	// and piper sidecars without needing aliases or provider entries.
+	if lm.WhisperEnabled && strings.HasPrefix(model, "whisper") {
+		if p, ok := r.builtinProvider("whisper-local"); ok {
+			return []Attempt{{Provider: p, KeyName: "default", UpstreamModel: model}}, nil
+		}
+	}
+	if lm.PiperEnabled && (strings.HasPrefix(model, "tts") || strings.HasSuffix(model, ".onnx")) {
+		if p, ok := r.builtinProvider("piper-local"); ok {
+			return []Attempt{{Provider: p, KeyName: "default", UpstreamModel: model}}, nil
+		}
+	}
+
 	return nil, fmt.Errorf("no provider or alias matches model %q", model)
+}
+
+// builtinProvider resolves provider names supplied by the runtime rather than
+// [[providers]]: the built-in local engine and its audio sidecars. The
+// returned Provider is descriptive — dispatch looks the real instance up in
+// the registry by name.
+func (r *Router) builtinProvider(name string) (config.Provider, bool) {
+	lm := r.cfg.GetLocalModels()
+	switch name {
+	case "local":
+		if lm.Enabled {
+			return config.Provider{Name: "local", Type: "llamacpp", Prefix: lm.Prefix}, true
+		}
+	case "whisper-local":
+		if lm.WhisperEnabled {
+			return config.Provider{Name: "whisper-local", Type: "openai"}, true
+		}
+	case "piper-local":
+		if lm.PiperEnabled {
+			return config.Provider{Name: "piper-local", Type: "openai"}, true
+		}
+	}
+	return config.Provider{}, false
 }
 
 func (r *Router) resolveAlias(a config.Alias) ([]Attempt, error) {
@@ -139,7 +176,8 @@ func (r *Router) resolveAlias(a config.Alias) ([]Attempt, error) {
 	}
 
 	strat := a.Strategy
-	if strat == "" {
+	// "fallback" is a legacy synonym: targets are tried in order until one works.
+	if strat == "" || strat == "fallback" {
 		strat = "order"
 	}
 	switch strat {
@@ -158,11 +196,14 @@ func (r *Router) resolveAlias(a config.Alias) ([]Attempt, error) {
 	for _, w := range all {
 		t := w.t
 		p, ok := r.cfg.FindProvider(t.Provider)
+		builtin := false
 		if !ok {
-			return nil, fmt.Errorf("alias %q target #%d: provider %q not found", a.Name, w.idx, t.Provider)
+			if p, builtin = r.builtinProvider(t.Provider); !builtin {
+				return nil, fmt.Errorf("alias %q target #%d: provider %q not found", a.Name, w.idx, t.Provider)
+			}
 		}
 		keyRef := p.KeyRef(t.Key)
-		if keyRef == "" && p.Type != "llama-server" && p.Type != "llamacpp" {
+		if keyRef == "" && !builtin && p.Type != "llamacpp" {
 			return nil, fmt.Errorf("alias %q target #%d: key %q not found in provider %q", a.Name, w.idx, t.Key, t.Provider)
 		}
 		keyName := t.Key

@@ -160,7 +160,6 @@
                   <option value="bedrock">aws-bedrock</option>
                   <option value="azure-openai">azure-openai</option>
                   <option value="antigravity">antigravity</option>
-                  <option value="llama-server">llama-server (local GGUF engine)</option>
                   <option value="custom">local / custom (OpenAI-compatible)</option>
                 </select>
               </div>
@@ -196,35 +195,6 @@
               <div class="field" id="apikey-field">
                 <label>API key <span class="help-pop" data-help="Stored encrypted in your OS keychain (Windows Credential Manager / macOS Keychain / Linux libsecret), never in plain text on disk.">?</span></label>
                 <input name="api_key" type="password" placeholder="sk-... or AIza..." />
-              </div>
-            </div>
-
-            <div id="llamacpp-block" hidden>
-              <div class="field">
-                <label>Models folder <span class="help-pop" data-help="Scanned recursively for *.gguf files.">?</span></label>
-                <input name="models_dir" placeholder="e.g. T:\AI" spellcheck="false" />
-              </div>
-              <div class="field">
-                <label>llama-server path <span class="help-pop" data-help="Path to llama-server.exe. Leave blank or 'llama-server' to resolve on PATH.">?</span></label>
-                <input name="llama_server_path" placeholder="llama-server" spellcheck="false" />
-              </div>
-              <div class="grid-2">
-                <div class="field">
-                  <label>Port</label>
-                  <input name="port" type="number" min="1" max="65535" placeholder="8081" />
-                </div>
-                <div class="field">
-                  <label>Context size (-c)</label>
-                  <input name="context_size" type="number" min="0" placeholder="4096" />
-                </div>
-                <div class="field">
-                  <label>GPU layers (-ngl) <span class="help-pop" data-help="0 = CPU only.">?</span></label>
-                  <input name="ngpu_layers" type="number" min="0" placeholder="0" />
-                </div>
-                <div class="field">
-                  <label>Extra arguments (one per line) <span class="help-pop" data-help="e.g. --mmproj\nT:\AI\proj.gguf">?</span></label>
-                  <textarea name="extra_args" rows="3" placeholder="e.g.&#10;--mmproj&#10;T:\AI\mmproj-f16.gguf" spellcheck="false"></textarea>
-                </div>
               </div>
             </div>
 
@@ -748,7 +718,7 @@
           <p class="muted small">Tuned for a ~4 GB GPU (Q4_K_M). One click downloads the model (and its vision projector when applicable) into your models folder with sensible defaults. Sizes are large — downloads run in the background.</p>
           <div id="catalog-empty" class="empty" hidden>
             <div class="empty-icon">⌁</div>
-            <p>Set a models folder below (or add a <em>llama-server</em> provider) so downloads have a destination.</p>
+            <p>Set a models folder below so downloads have a destination.</p>
           </div>
           <div id="catalog-cards" class="catalog-grid"></div>
         </div>
@@ -986,34 +956,6 @@
           </select>
         </div>
         <div></div>
-      </div>
-      <div id="edit-llamacpp-block" hidden>
-        <div class="field">
-          <label>Models folder</label>
-          <input id="edit-models-dir" placeholder="e.g. T:\AI" spellcheck="false" />
-        </div>
-        <div class="field">
-          <label>llama-server path</label>
-          <input id="edit-llama-server-path" placeholder="llama-server" spellcheck="false" />
-        </div>
-        <div class="grid-2">
-          <div class="field">
-            <label>Port</label>
-            <input id="edit-port" type="number" min="1" max="65535" placeholder="8081" />
-          </div>
-          <div class="field">
-            <label>Context size (-c)</label>
-            <input id="edit-context-size" type="number" min="0" placeholder="4096" />
-          </div>
-          <div class="field">
-            <label>GPU layers (-ngl)</label>
-            <input id="edit-ngpu-layers" type="number" min="0" placeholder="0" />
-          </div>
-          <div class="field">
-            <label>Extra arguments (one per line)</label>
-            <textarea id="edit-extra-args" rows="3" placeholder="e.g.&#10;--mmproj&#10;T:\AI\mmproj-f16.gguf" spellcheck="false"></textarea>
-          </div>
-        </div>
       </div>
       <div id="edit-fetch-block" class="actions">
         <button type="button" id="edit-probe-btn" class="btn-secondary">

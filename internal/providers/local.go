@@ -30,14 +30,6 @@ func newLocalProvider(cfg config.LocalModelsConfig, engine *LocalEngine) Provide
 	return &localProvider{name: localProviderName, pType: "llamacpp", prefix: prefix, engine: engine}
 }
 
-func newLocalProviderWithConfig(p config.Provider, engine *LocalEngine) Provider {
-	prefix := p.Prefix
-	if prefix == "" {
-		prefix = "local/"
-	}
-	return &localProvider{name: p.Name, pType: p.Type, prefix: prefix, engine: engine}
-}
-
 func (p *localProvider) Name() string     { return p.name }
 func (p *localProvider) Type() string     { return p.pType }
 func (p *localProvider) Prefix() string   { return p.prefix }

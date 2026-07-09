@@ -90,8 +90,7 @@ const DEFAULTS = {
   bedrock:         { prefix: 'bedrock/',    base_url: 'https://bedrock-runtime.us-east-1.amazonaws.com/openai/v1' },
   'azure-openai':  { prefix: 'azure/',      base_url: 'https://YOUR-RESOURCE.openai.azure.com', api_version: '2024-10-21' },
   antigravity:     { prefix: 'antigravity/', base_url: '' },
-  'llama-server':  { prefix: 'local/',      base_url: '' },
-  custom:          { prefix: 'local/',      base_url: 'http://localhost:11434/v1' },
+  custom:          { prefix: 'custom/',     base_url: 'http://localhost:8080/v1' },
 };
 
 // in-memory snapshots
@@ -178,19 +177,17 @@ function autocompleteByType() {
   const isAntigravity = t === 'antigravity';
   const isAzure   = t === 'azure-openai';
   const isCustom  = t === 'custom';
-  const isLlama   = t === 'llama-server';
-  apikeyBlock.hidden = isChatGPT || isLlama;
-  if (apikeyField) apikeyField.hidden = isAntigravity || isLlama;
+  apikeyBlock.hidden = isChatGPT;
+  if (apikeyField) apikeyField.hidden = isAntigravity;
   chatgptBlock.hidden = !isChatGPT;
-  document.getElementById('llamacpp-block').hidden = !isLlama;
-  provFields.apiKey.required = !isChatGPT && !isCustom && !isAntigravity && !isLlama;
-  provFields.base.required = !isChatGPT && !isAntigravity && !isLlama;
-  provFields.base.disabled = isChatGPT || isAntigravity || isLlama;
-  if (isChatGPT || isAntigravity || isLlama) provFields.base.value = '';
+  provFields.apiKey.required = !isChatGPT && !isCustom && !isAntigravity;
+  provFields.base.required = !isChatGPT && !isAntigravity;
+  provFields.base.disabled = isChatGPT || isAntigravity;
+  if (isChatGPT || isAntigravity) provFields.base.value = '';
   const apiVerField = document.getElementById('api-version-field');
   if (apiVerField) apiVerField.hidden = !isAzure;
   const baseField = document.getElementById('base-url-field');
-  if (baseField) baseField.hidden = isChatGPT || isAntigravity || isLlama;
+  if (baseField) baseField.hidden = isChatGPT || isAntigravity;
   const antProjField = document.getElementById('antigravity-project-field');
   if (antProjField) antProjField.hidden = !isAntigravity;
   const mainSearch = document.getElementById('antigravity-project-search');
@@ -199,23 +196,6 @@ function autocompleteByType() {
   }
   const mainSel = document.getElementById('antigravity-project-select');
 
-  if (isLlama && localModelsConfig) {
-    const mdInput = $('[name=models_dir]', provForm);
-    const lspInput = $('[name=llama_server_path]', provForm);
-    const portInput = $('[name=port]', provForm);
-    const ctxInput = $('[name=context_size]', provForm);
-    const ngpuInput = $('[name=ngpu_layers]', provForm);
-    const eaInput = $('[name=extra_args]', provForm);
-
-    if (mdInput && !mdInput.value) mdInput.value = localModelsConfig.models_dir || '';
-    if (lspInput && !lspInput.value) lspInput.value = localModelsConfig.llama_server_path || '';
-    if (portInput && !portInput.value) portInput.value = localModelsConfig.port || '';
-    if (ctxInput && !ctxInput.value) ctxInput.value = localModelsConfig.context_size || '';
-    if (ngpuInput && !ngpuInput.value) ngpuInput.value = localModelsConfig.ngpu_layers || '';
-    if (eaInput && !eaInput.value && localModelsConfig.extra_args) {
-      eaInput.value = localModelsConfig.extra_args.join('\n');
-    }
-  }
   if (mainSel) {
     populateProjectSelect(mainSel);
   }
@@ -256,16 +236,8 @@ probeBtn.addEventListener('click', async () => {
     api_key: provFields.apiKey.value,
     api_version: (provFields.apiVer && provFields.apiVer.value) || '',
   };
-  if (payload.type === 'llama-server') {
-    payload.models_dir = $('[name=models_dir]', provForm).value;
-  }
-  const keyOptional = payload.type === 'custom' || payload.type === 'antigravity' || payload.type === 'llama-server';
-  const baseOptional = payload.type === 'antigravity' || payload.type === 'llama-server';
-  if (payload.type === 'llama-server' && !payload.models_dir) {
-    probeStatus.textContent = 'Fill models folder first';
-    probeStatus.className = 'status err';
-    return;
-  }
+  const keyOptional = payload.type === 'custom' || payload.type === 'antigravity';
+  const baseOptional = payload.type === 'antigravity';
   if ((!payload.base_url && !baseOptional) || (!payload.api_key && !keyOptional)) {
     probeStatus.textContent = baseOptional
       ? 'Fill prefix first'
@@ -310,20 +282,12 @@ provForm.addEventListener('submit', async e => {
     name:        provFields.name.value,
     type:        provFields.type.value,
     prefix:      provFields.prefix.value,
-    base_url:    (provFields.type.value === 'chatgpt-codex' || provFields.type.value === 'antigravity' || provFields.type.value === 'llama-server') ? '' : provFields.base.value,
+    base_url:    (provFields.type.value === 'chatgpt-codex' || provFields.type.value === 'antigravity') ? '' : provFields.base.value,
     api_key:     provFields.apiKey.value,
     api_version: (provFields.apiVer && provFields.apiVer.value) || '',
     project_id:  (provFields.type.value === 'antigravity') ? document.getElementById('antigravity-project-select').value : '',
     models:      selected,
   };
-  if (payload.type === 'llama-server') {
-    payload.models_dir = $('[name=models_dir]', provForm).value;
-    payload.llama_server_path = $('[name=llama_server_path]', provForm).value;
-    payload.port = parseInt($('[name=port]', provForm).value, 10) || 8081;
-    payload.context_size = parseInt($('[name=context_size]', provForm).value, 10) || 4096;
-    payload.ngpu_layers = parseInt($('[name=ngpu_layers]', provForm).value, 10) || 0;
-    payload.extra_args = $('[name=extra_args]', provForm).value.split('\n').map(s => s.trim()).filter(Boolean);
-  }
   try {
     await api('POST', '/admin/providers', payload);
     provForm.reset();
@@ -471,18 +435,8 @@ function openEditDialog(p) {
   editProbeStatus.className = 'status';
   editDisabled.checked = !!p.disabled;
   editOriginalDisabled = !!p.disabled;
-  const isLlama = p.type === 'llama-server';
-  editBaseFld.hidden = (p.type === 'chatgpt-codex' || p.type === 'antigravity' || isLlama);
+  editBaseFld.hidden = (p.type === 'chatgpt-codex' || p.type === 'antigravity');
   editFetchBlock.hidden = (p.type === 'chatgpt-codex');
-  document.getElementById('edit-llamacpp-block').hidden = !isLlama;
-  if (isLlama) {
-    document.getElementById('edit-models-dir').value = p.models_dir || localModelsConfig.models_dir || '';
-    document.getElementById('edit-llama-server-path').value = p.llama_server_path || localModelsConfig.llama_server_path || '';
-    document.getElementById('edit-port').value = p.port || localModelsConfig.port || 8081;
-    document.getElementById('edit-context-size').value = p.context_size || localModelsConfig.context_size || 4096;
-    document.getElementById('edit-ngpu-layers').value = p.ngpu_layers || localModelsConfig.ngpu_layers || 0;
-    document.getElementById('edit-extra-args').value = (p.extra_args || localModelsConfig.extra_args || []).join('\n');
-  }
   const editProjFld = document.getElementById('edit-antigravity-project-field');
   const editProjSel = document.getElementById('edit-project-id');
   const editProjSearch = document.getElementById('edit-project-search');
@@ -514,9 +468,6 @@ editProbeBtn.addEventListener('click', async () => {
   editProbeStatus.className = 'status pending';
   try {
     const payload = { provider: name };
-    if (editType.value === 'llama-server') {
-      payload.models_dir = document.getElementById('edit-models-dir').value;
-    }
     const body = await api('POST', '/admin/providers/probe', payload);
     const models = body.models || [];
     if (!models.length) {
@@ -547,18 +498,10 @@ editForm.addEventListener('submit', async e => {
     name,
     type,
     prefix:   editPrefix.value,
-    base_url: (type === 'chatgpt-codex' || type === 'antigravity' || type === 'llama-server') ? '' : editBase.value,
+    base_url: (type === 'chatgpt-codex' || type === 'antigravity') ? '' : editBase.value,
     project_id: (type === 'antigravity') ? document.getElementById('edit-project-id').value : '',
     models,
   };
-  if (type === 'llama-server') {
-    payload.models_dir = document.getElementById('edit-models-dir').value;
-    payload.llama_server_path = document.getElementById('edit-llama-server-path').value;
-    payload.port = parseInt(document.getElementById('edit-port').value, 10) || 8081;
-    payload.context_size = parseInt(document.getElementById('edit-context-size').value, 10) || 4096;
-    payload.ngpu_layers = parseInt(document.getElementById('edit-ngpu-layers').value, 10) || 0;
-    payload.extra_args = document.getElementById('edit-extra-args').value.split('\n').map(s => s.trim()).filter(Boolean);
-  }
 
   try {
     await api('POST', '/admin/providers', payload);
@@ -1029,6 +972,14 @@ function renderTryIt() {
       slugsHost.appendChild(exampleCard((p.prefix || '') + m, p.type));
     }
   }
+  // Built-in local engine: every model discovered on disk is routable
+  if (localModelsConfig && localModelsConfig.enabled) {
+    const prefix = localModelsConfig.prefix || 'local/';
+    for (const m of (localModelsConfig.models || [])) {
+      slugCount++;
+      slugsHost.appendChild(exampleCard(prefix + m.id, 'local'));
+    }
+  }
   slugsCount.textContent = slugCount;
   slugsEmpty.hidden = slugCount > 0;
 
@@ -1399,6 +1350,7 @@ function renderLocalModels(st) {
 
 function applyLocalModelsStatus(st) {
   localModelsConfig = st;
+  renderTryIt();
   $('[name=enabled]', localModelsForm).checked         = !!st.enabled;
   $('[name=models_dir]', localModelsForm).value        = st.models_dir || '';
   $('[name=llama_server_path]', localModelsForm).value = st.llama_server_path || '';
