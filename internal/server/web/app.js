@@ -1536,6 +1536,7 @@ function applyLocalModelsStatus(st) {
   $('[name=port]', localModelsForm).value              = st.port || '';
   $('[name=context_size]', localModelsForm).value      = st.context_size || '';
   $('[name=ngpu_layers]', localModelsForm).value       = st.ngpu_layers || '';
+  $('[name=no_thinking]', localModelsForm).checked     = !!st.no_thinking;
 
   // Audio fields
   $('[name=whisper_enabled]', localModelsForm).checked     = !!st.whisper_enabled;
@@ -1741,6 +1742,7 @@ localModelsForm.addEventListener('submit', async e => {
     port:                num('port'),
     context_size:        num('context_size'),
     ngpu_layers:         num('ngpu_layers'),
+    no_thinking:         $('[name=no_thinking]', localModelsForm).checked,
 
     whisper_enabled:     $('[name=whisper_enabled]', localModelsForm).checked,
     whisper_server_path: (fd.get('whisper_server_path') || '').toString().trim(),

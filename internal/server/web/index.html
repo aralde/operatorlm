@@ -770,7 +770,14 @@
                 <input name="ngpu_layers" type="number" min="0" placeholder="0" />
               </div>
             </div>
-            
+            <div class="field">
+              <label class="checkbox">
+                <input type="checkbox" name="no_thinking" />
+                <span>Disable thinking (--reasoning-budget 0)</span>
+                <span class="help-pop" data-help="Launches llama-server with --reasoning-budget 0 so reasoning-tuned models answer directly instead of emitting thinking tokens first. Recommended for structured output (json_schema) and low timeouts.">?</span>
+              </label>
+            </div>
+
             <!-- Whisper (STT) Settings -->
             <div style="margin-top: 20px; border-top: 1px solid var(--border); padding-top: 15px;">
               <h3>Speech-to-Text (whisper.cpp)</h3>

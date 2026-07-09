@@ -187,6 +187,10 @@ type LocalModelsConfig struct {
 	NGPULayers int `toml:"ngpu_layers,omitempty" json:"ngpu_layers,omitempty"`
 	// ExtraArgs are appended verbatim to the llama-server command line.
 	ExtraArgs []string `toml:"extra_args,omitempty" json:"extra_args,omitempty"`
+	// NoThinking launches llama-server with --reasoning-budget 0, disabling
+	// model "thinking"/reasoning output. Useful for structured-output flows
+	// where reasoning tokens eat the whole request timeout before any content.
+	NoThinking bool `toml:"no_thinking,omitempty" json:"no_thinking"`
 
 	// Local Audio STT (whisper.cpp)
 	WhisperEnabled    bool   `toml:"whisper_enabled" json:"whisper_enabled"`

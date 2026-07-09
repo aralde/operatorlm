@@ -67,8 +67,10 @@ func (e *LocalEngine) Reconfigure(cfg config.LocalModelsConfig) {
 	if old.Port != cfg.Port ||
 		old.LlamaServerPath != cfg.LlamaServerPath ||
 		old.ContextSize != cfg.ContextSize ||
-		old.NGPULayers != cfg.NGPULayers {
-		e.Stop()
+		old.NGPULayers != cfg.NGPULayers ||
+		old.NoThinking != cfg.NoThinking ||
+		strings.Join(old.ExtraArgs, "\n") != strings.Join(cfg.ExtraArgs, "\n") {
+		e.StopChat()
 	}
 
 	e.manageWhisper(cfg)
@@ -225,6 +227,11 @@ func (e *LocalEngine) startLocked(ctx context.Context, cfg config.LocalModelsCon
 	}
 	if ngl > 0 {
 		args = append(args, "-ngl", strconv.Itoa(ngl))
+	}
+	// Disable model "thinking": without this, reasoning-tuned models can spend
+	// the entire request timeout emitting reasoning_content before any answer.
+	if cfg.NoThinking {
+		args = append(args, "--reasoning-budget", "0")
 	}
 	args = append(args, cfg.ExtraArgs...)
 
