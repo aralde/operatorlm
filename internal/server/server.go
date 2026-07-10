@@ -66,6 +66,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/v1/responses", s.handleResponses)
 	mux.HandleFunc("/v1/embeddings", s.handleEmbeddings)
 	mux.HandleFunc("/v1/audio/speech", s.handleSpeech)
+	mux.HandleFunc("/v1/audio/speech/realtime", s.handleRealtimeSpeech)
 	mux.HandleFunc("/v1/audio/transcriptions", s.handleTranscriptions)
 	mux.HandleFunc("/v1/audio/translations", s.handleTranslations)
 	mux.HandleFunc("/v1/models", s.handleModels)

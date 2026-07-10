@@ -548,38 +548,31 @@ func (e *LocalEngine) startPiperServer(port int, piperBin, modelsDir string) err
 			Model string `json:"model"`
 			Input string `json:"input"`
 			Voice string `json:"voice"`
+			// OpenAI's response_format: "wav" (default, buffered, exact
+			// Content-Length) or "pcm" (raw 16-bit LE mono streamed as it is
+			// synthesized — the format has no length header, so it can be
+			// flushed chunk by chunk).
+			ResponseFormat string `json:"response_format"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "invalid json: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 
-		// Resolve the voice, OpenAI-style: the `voice` field first (an
-		// installed .onnx stem, e.g. es_AR-daniela-high), then the model
-		// name, then the configured default. OpenAI voice names like
-		// "alloy" won't resolve to a file and fall through to the default.
-		e.dataMu.RLock()
-		defModel := e.cfg.PiperModel
-		e.dataMu.RUnlock()
-		var fullModelPath string
-		ok := false
-		for _, cand := range []string{req.Voice, req.Model, defModel} {
-			if cand == "" {
-				continue
-			}
-			if !strings.HasSuffix(cand, ".onnx") {
-				cand += ".onnx"
-			}
-			if fullModelPath, ok = findModelFile(modelsDir, cand); ok {
-				break
-			}
-		}
+		fullModelPath, ok := e.resolvePiperVoice(req.Voice, req.Model)
 		if !ok {
-			http.Error(w, fmt.Sprintf("no piper voice found: none of voice=%q, model=%q or the default %q exist under %s", req.Voice, req.Model, defModel, modelsDir), http.StatusBadRequest)
+			http.Error(w, fmt.Sprintf("no piper voice found: none of voice=%q, model=%q or the configured default exist under %s", req.Voice, req.Model, modelsDir), http.StatusBadRequest)
 			return
 		}
 
-		wavBytes, err := runPiperCLI(piperBin, fullModelPath, req.Input)
+		sampleRate := piperSampleRate(fullModelPath)
+
+		if strings.EqualFold(req.ResponseFormat, "pcm") {
+			streamPiperPCM(w, piperBin, fullModelPath, req.Input, sampleRate)
+			return
+		}
+
+		wavBytes, err := runPiperCLI(piperBin, fullModelPath, req.Input, sampleRate)
 		if err != nil {
 			http.Error(w, "piper failed: "+err.Error(), http.StatusInternalServerError)
 			return
@@ -606,42 +599,225 @@ func (e *LocalEngine) startPiperServer(port int, piperBin, modelsDir string) err
 	return nil
 }
 
-func runPiperCLI(piperBin, modelPath, text string) ([]byte, error) {
+// resolvePiperVoice locates a voice model, OpenAI-style: each candidate in
+// order (the request's `voice` field first — an installed .onnx stem like
+// es_AR-daniela-high — then the model name), then the configured default.
+// OpenAI voice names like "alloy" won't resolve to a file and fall through
+// to the default.
+func (e *LocalEngine) resolvePiperVoice(candidates ...string) (string, bool) {
+	e.dataMu.RLock()
+	modelsDir := e.cfg.ModelsDir
+	defModel := e.cfg.PiperModel
+	e.dataMu.RUnlock()
+	for _, cand := range append(candidates, defModel) {
+		if cand == "" {
+			continue
+		}
+		if !strings.HasSuffix(cand, ".onnx") {
+			cand += ".onnx"
+		}
+		if p, ok := findModelFile(modelsDir, cand); ok {
+			return p, true
+		}
+	}
+	return "", false
+}
+
+// PiperVoiceInfo resolves a voice name to its model path and sample rate, for
+// callers that need the rate before any audio exists (e.g. the realtime SSE
+// stream announces it in its first event).
+func (e *LocalEngine) PiperVoiceInfo(voice string) (string, int, error) {
+	modelPath, ok := e.resolvePiperVoice(voice)
+	if !ok {
+		e.dataMu.RLock()
+		dir := e.cfg.ModelsDir
+		e.dataMu.RUnlock()
+		return "", 0, fmt.Errorf("no piper voice found: neither %q nor the configured default exist under %s", voice, dir)
+	}
+	return modelPath, piperSampleRate(modelPath), nil
+}
+
+// PiperSynthesizeStream runs one piper process for a whole session: sentences
+// are written to stdin as they arrive on the channel and raw PCM is handed to
+// onAudio as it is produced. One process — and one .onnx load — per session,
+// instead of per sentence, which is what makes LLM→TTS pipelining actually
+// overlap (a per-sentence spawn pays the voice-model load again every time).
+// Cancelling ctx kills the process.
+func (e *LocalEngine) PiperSynthesizeStream(ctx context.Context, modelPath string, sentences <-chan string, onAudio func([]byte)) error {
+	e.dataMu.RLock()
+	piperBin := e.cfg.PiperPath
+	e.dataMu.RUnlock()
+
 	if !fileExists(piperBin) {
 		if _, err := exec.LookPath(piperBin); err != nil {
-			return nil, fmt.Errorf("piper binary not found (%q)", piperBin)
+			return fmt.Errorf("piper binary not found (%q)", piperBin)
+		}
+	}
+
+	cmd := prepareCommand(ctx, piperBin, "--model", modelPath, "--output-raw")
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return err
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return err
+	}
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+
+	go func() {
+		defer stdin.Close() // EOF lets piper finish the tail and exit
+		for s := range sentences {
+			// One line per sentence: piper synthesizes each stdin line in
+			// order. Sentences never contain newlines (the splitter cuts on
+			// them), but normalize defensively.
+			line := strings.ReplaceAll(s, "\n", " ")
+			if _, err := io.WriteString(stdin, line+"\n"); err != nil {
+				return // process died; the read loop reports it
+			}
+		}
+	}()
+
+	buf := make([]byte, 4096)
+	for {
+		n, rerr := stdout.Read(buf)
+		if n > 0 && onAudio != nil {
+			chunk := make([]byte, n)
+			copy(chunk, buf[:n])
+			onAudio(chunk)
+		}
+		if rerr != nil {
+			break
+		}
+	}
+	if err := cmd.Wait(); err != nil {
+		return fmt.Errorf("piper: %w | stderr: %s", err, stderr.String())
+	}
+	return nil
+}
+
+// piperSampleRate reads audio.sample_rate from the voice's .onnx.json config
+// (downloaded alongside the model). Piper voices are not all 22.05 kHz — "low"
+// quality voices are 16 kHz — so a hardcoded rate plays them at the wrong speed.
+func piperSampleRate(modelPath string) int {
+	const fallback = 22050
+	b, err := os.ReadFile(modelPath + ".json")
+	if err != nil {
+		return fallback
+	}
+	var cfg struct {
+		Audio struct {
+			SampleRate int `json:"sample_rate"`
+		} `json:"audio"`
+	}
+	if json.Unmarshal(b, &cfg) != nil || cfg.Audio.SampleRate <= 0 {
+		return fallback
+	}
+	return cfg.Audio.SampleRate
+}
+
+// startPiperProc spawns piper with text on stdin and returns its raw-PCM
+// stdout plus a wait func that surfaces stderr on failure. The caller must
+// drain stdout to EOF before calling wait.
+func startPiperProc(piperBin, modelPath, text string) (io.Reader, func() error, error) {
+	if !fileExists(piperBin) {
+		if _, err := exec.LookPath(piperBin); err != nil {
+			return nil, nil, fmt.Errorf("piper binary not found (%q)", piperBin)
 		}
 	}
 	if _, err := os.Stat(modelPath); err != nil {
-		return nil, fmt.Errorf("piper model file not found (%q)", modelPath)
+		return nil, nil, fmt.Errorf("piper model file not found (%q)", modelPath)
 	}
 
 	cmd := prepareCommand(context.Background(), piperBin, "--model", modelPath, "--output-raw")
-	
+
 	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return nil, nil, err
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, nil, err
+	}
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	if err := cmd.Start(); err != nil {
+		return nil, nil, err
+	}
+
+	_, _ = io.WriteString(stdin, text+"\n")
+	_ = stdin.Close()
+
+	wait := func() error {
+		if err := cmd.Wait(); err != nil {
+			return fmt.Errorf("wait: %w | stderr: %s", err, stderr.String())
+		}
+		return nil
+	}
+	return stdout, wait, nil
+}
+
+func runPiperCLI(piperBin, modelPath, text string, sampleRate int) ([]byte, error) {
+	stdout, wait, err := startPiperProc(piperBin, modelPath, text)
 	if err != nil {
 		return nil, err
 	}
-	
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	
-	if err := cmd.Start(); err != nil {
+	pcmData, readErr := io.ReadAll(stdout)
+	if err := wait(); err != nil {
 		return nil, err
 	}
-	
-	_, _ = io.WriteString(stdin, text+"\n")
-	_ = stdin.Close()
-	
-	if err := cmd.Wait(); err != nil {
-		return nil, fmt.Errorf("wait: %w | stderr: %s", err, stderr.String())
+	if readErr != nil {
+		return nil, readErr
 	}
-	
-	pcmData := stdout.Bytes()
-	wavData := addWavHeader(pcmData, 22050)
-	return wavData, nil
+	return addWavHeader(pcmData, sampleRate), nil
+}
+
+// streamPiperPCM copies piper's stdout to the client as it is synthesized:
+// no Content-Length, one Flush per chunk (Go switches to chunked transfer
+// automatically). The client hears the first sentence while the rest is
+// still being generated instead of waiting for the whole input.
+func streamPiperPCM(w http.ResponseWriter, piperBin, modelPath, text string, sampleRate int) {
+	stdout, wait, err := startPiperProc(piperBin, modelPath, text)
+	if err != nil {
+		http.Error(w, "piper failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", fmt.Sprintf("audio/L16; rate=%d; channels=1", sampleRate))
+	// Non-standard convenience header: lets clients configure playback
+	// without parsing the MIME parameters.
+	w.Header().Set("X-Sample-Rate", strconv.Itoa(sampleRate))
+	w.WriteHeader(http.StatusOK)
+
+	flusher, _ := w.(http.Flusher)
+	buf := make([]byte, 4096)
+	clientGone := false
+	for {
+		n, rerr := stdout.Read(buf)
+		if n > 0 && !clientGone {
+			if _, werr := w.Write(buf[:n]); werr != nil {
+				// Client hung up. Keep draining stdout to EOF so piper can
+				// finish and exit — abandoning the pipe would fill its buffer
+				// and deadlock wait() below.
+				clientGone = true
+			} else if flusher != nil {
+				flusher.Flush()
+			}
+		}
+		if rerr != nil {
+			break
+		}
+	}
+	if err := wait(); err != nil {
+		// Headers are already sent, so the error can only be logged.
+		log.Printf("local engine: piper stream: %v", err)
+	}
 }
 
 func addWavHeader(pcm []byte, sampleRate int) []byte {
