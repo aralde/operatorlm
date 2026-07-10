@@ -160,7 +160,6 @@
                   <option value="bedrock">aws-bedrock</option>
                   <option value="azure-openai">azure-openai</option>
                   <option value="antigravity">antigravity</option>
-                  <option value="llama-server">llama-server (local GGUF engine)</option>
                   <option value="custom">local / custom (OpenAI-compatible)</option>
                 </select>
               </div>
@@ -196,35 +195,6 @@
               <div class="field" id="apikey-field">
                 <label>API key <span class="help-pop" data-help="Stored encrypted in your OS keychain (Windows Credential Manager / macOS Keychain / Linux libsecret), never in plain text on disk.">?</span></label>
                 <input name="api_key" type="password" placeholder="sk-... or AIza..." />
-              </div>
-            </div>
-
-            <div id="llamacpp-block" hidden>
-              <div class="field">
-                <label>Models folder <span class="help-pop" data-help="Scanned recursively for *.gguf files.">?</span></label>
-                <input name="models_dir" placeholder="e.g. T:\AI" spellcheck="false" />
-              </div>
-              <div class="field">
-                <label>llama-server path <span class="help-pop" data-help="Path to llama-server.exe. Leave blank or 'llama-server' to resolve on PATH.">?</span></label>
-                <input name="llama_server_path" placeholder="llama-server" spellcheck="false" />
-              </div>
-              <div class="grid-2">
-                <div class="field">
-                  <label>Port</label>
-                  <input name="port" type="number" min="1" max="65535" placeholder="8081" />
-                </div>
-                <div class="field">
-                  <label>Context size (-c)</label>
-                  <input name="context_size" type="number" min="0" placeholder="4096" />
-                </div>
-                <div class="field">
-                  <label>GPU layers (-ngl) <span class="help-pop" data-help="0 = CPU only.">?</span></label>
-                  <input name="ngpu_layers" type="number" min="0" placeholder="0" />
-                </div>
-                <div class="field">
-                  <label>Extra arguments (one per line) <span class="help-pop" data-help="e.g. --mmproj\nT:\AI\proj.gguf">?</span></label>
-                  <textarea name="extra_args" rows="3" placeholder="e.g.&#10;--mmproj&#10;T:\AI\mmproj-f16.gguf" spellcheck="false"></textarea>
-                </div>
               </div>
             </div>
 
@@ -438,6 +408,14 @@
                 <p>No models exposed via slug. Add models in the <em>Providers</em> tab.</p>
               </div>
               <div id="tryit-slugs"></div>
+            </div>
+
+            <div class="card" id="tryit-audio-card" hidden>
+              <div class="card-head">
+                <h2>Local audio</h2>
+                <span class="badge" id="tryit-audio-count">0</span>
+              </div>
+              <div id="tryit-audio"></div>
             </div>
 
             <div class="card">
@@ -748,7 +726,7 @@
           <p class="muted small">Tuned for a ~4 GB GPU (Q4_K_M). One click downloads the model (and its vision projector when applicable) into your models folder with sensible defaults. Sizes are large — downloads run in the background.</p>
           <div id="catalog-empty" class="empty" hidden>
             <div class="empty-icon">⌁</div>
-            <p>Set a models folder below (or add a <em>llama-server</em> provider) so downloads have a destination.</p>
+            <p>Set a models folder below so downloads have a destination.</p>
           </div>
           <div id="catalog-cards" class="catalog-grid"></div>
         </div>
@@ -792,7 +770,14 @@
                 <input name="ngpu_layers" type="number" min="0" placeholder="0" />
               </div>
             </div>
-            
+            <div class="field">
+              <label class="checkbox">
+                <input type="checkbox" name="no_thinking" />
+                <span>Disable thinking (--reasoning-budget 0)</span>
+                <span class="help-pop" data-help="Launches llama-server with --reasoning-budget 0 so reasoning-tuned models answer directly instead of emitting thinking tokens first. Recommended for structured output (json_schema) and low timeouts.">?</span>
+              </label>
+            </div>
+
             <!-- Whisper (STT) Settings -->
             <div style="margin-top: 20px; border-top: 1px solid var(--border); padding-top: 15px;">
               <h3>Speech-to-Text (whisper.cpp)</h3>
@@ -842,6 +827,16 @@
               <div class="field">
                 <label>Piper model voice (.onnx)</label>
                 <input name="piper_model" type="text" placeholder="es_ES-davefx-medium.onnx" spellcheck="false" />
+              </div>
+              <div class="field">
+                <label>Download more voices <span class="help-pop" data-help="Official Piper voice catalog: pick a language and regional variant, then download it into the models folder. Use the downloaded voice per request via the OpenAI `voice` field, or set it as the default above.">?</span></label>
+                <div style="display:flex; gap:.5rem; align-items:center;">
+                  <select id="piper-voice-select" style="flex:1; min-width:0;">
+                    <option value="">Loading voice catalog…</option>
+                  </select>
+                  <button type="button" id="piper-voice-download" class="btn-secondary">Download</button>
+                </div>
+                <span id="piper-voice-status" class="muted small"></span>
               </div>
             </div>
 
@@ -986,34 +981,6 @@
           </select>
         </div>
         <div></div>
-      </div>
-      <div id="edit-llamacpp-block" hidden>
-        <div class="field">
-          <label>Models folder</label>
-          <input id="edit-models-dir" placeholder="e.g. T:\AI" spellcheck="false" />
-        </div>
-        <div class="field">
-          <label>llama-server path</label>
-          <input id="edit-llama-server-path" placeholder="llama-server" spellcheck="false" />
-        </div>
-        <div class="grid-2">
-          <div class="field">
-            <label>Port</label>
-            <input id="edit-port" type="number" min="1" max="65535" placeholder="8081" />
-          </div>
-          <div class="field">
-            <label>Context size (-c)</label>
-            <input id="edit-context-size" type="number" min="0" placeholder="4096" />
-          </div>
-          <div class="field">
-            <label>GPU layers (-ngl)</label>
-            <input id="edit-ngpu-layers" type="number" min="0" placeholder="0" />
-          </div>
-          <div class="field">
-            <label>Extra arguments (one per line)</label>
-            <textarea id="edit-extra-args" rows="3" placeholder="e.g.&#10;--mmproj&#10;T:\AI\mmproj-f16.gguf" spellcheck="false"></textarea>
-          </div>
-        </div>
       </div>
       <div id="edit-fetch-block" class="actions">
         <button type="button" id="edit-probe-btn" class="btn-secondary">

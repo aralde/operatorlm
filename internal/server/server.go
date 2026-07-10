@@ -91,6 +91,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/admin/localmodels/llama-server/download", s.handleLlamaServerDownload)
 	mux.HandleFunc("/admin/localmodels/whisper-server/download", s.handleWhisperServerDownload)
 	mux.HandleFunc("/admin/localmodels/piper/download", s.handlePiperDownload)
+	mux.HandleFunc("/admin/localmodels/piper/voices", s.handlePiperVoices)
+	mux.HandleFunc("/admin/localmodels/piper/voices/download", s.handlePiperVoiceDownload)
 	mux.HandleFunc("/admin/antigravity/projects", s.handleAntigravityProjects)
 	mux.HandleFunc("/admin/update/status", s.handleUpdateStatus)
 	mux.HandleFunc("/admin/update/check", s.handleUpdateCheck)

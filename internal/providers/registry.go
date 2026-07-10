@@ -10,13 +10,13 @@ import (
 type Registry struct {
 	cfg *config.Config
 
-	mu      sync.RWMutex
-	byKey   map[string]Provider
-	engines map[string]*LocalEngine // maps provider Name to its LocalEngine instance
+	mu     sync.RWMutex
+	byKey  map[string]Provider
+	engine *LocalEngine // the single built-in llama.cpp engine
 }
 
 func NewRegistry(cfg *config.Config) *Registry {
-	r := &Registry{cfg: cfg, engines: make(map[string]*LocalEngine)}
+	r := &Registry{cfg: cfg}
 	r.Reload()
 	return r
 }
@@ -25,131 +25,89 @@ func (r *Registry) Reload() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if r.engines == nil {
-		r.engines = make(map[string]*LocalEngine)
-	}
-
 	newByKey := make(map[string]Provider)
-	activeEngines := make(map[string]bool)
 
 	for _, p := range r.cfg.Snapshot() {
 		if p.Disabled {
 			continue
 		}
-		if p.Type == "llama-server" {
-			lm := config.LocalModelsConfig{
-				Enabled:         true,
-				ModelsDir:       p.ModelsDir,
-				LlamaServerPath: p.LlamaServerPath,
-				Prefix:          p.Prefix,
-				Port:            p.Port,
-				ContextSize:     p.ContextSize,
-				NGPULayers:      p.NGPULayers,
-				ExtraArgs:       p.ExtraArgs,
-			}
-			engine := r.engines[p.Name]
-			if engine == nil {
-				engine = NewLocalEngine(lm)
-				r.engines[p.Name] = engine
-			} else {
-				engine.Reconfigure(lm)
-			}
-			engine.Refresh()
-			activeEngines[p.Name] = true
-			newByKey[p.Name] = newLocalProviderWithConfig(p, engine)
-		} else {
-			if prov := build(p); prov != nil {
-				newByKey[p.Name] = prov
-			}
+		if prov := build(p); prov != nil {
+			newByKey[p.Name] = prov
 		}
 	}
 
-	// Legacy global local models config support (if enabled)
+	// Built-in local engine ([local_models] is its single source of truth).
+	// Reconfigure also starts/stops the whisper and piper sidecars according
+	// to their own enabled flags, so it must run even on first load.
 	lm := r.cfg.GetLocalModels()
-	engine := r.engines["_legacy_local"]
-	if engine == nil {
-		engine = NewLocalEngine(lm)
-		r.engines["_legacy_local"] = engine
-	} else {
-		engine.Reconfigure(lm)
+	if r.engine == nil {
+		r.engine = NewLocalEngine(lm)
 	}
-	activeEngines["_legacy_local"] = true
-
+	r.engine.Reconfigure(lm)
 	if lm.Enabled {
-		engine.Refresh()
-		newByKey[localProviderName] = newLocalProvider(lm, engine)
+		r.engine.Refresh()
+		newByKey[localProviderName] = newLocalProvider(lm, r.engine)
+	} else {
+		r.engine.StopChat()
 	}
 
 	if lm.WhisperEnabled {
-		newByKey["whisper-local"] = newOpenAILike(config.Provider{
-			Name:    "whisper-local",
-			Type:    "openai",
-			BaseURL: "http://127.0.0.1:" + strconv.Itoa(lm.WhisperPort),
-			Models:  []string{"whisper-1"},
-		}, nil)
+		// whisper.cpp's server speaks multipart like OpenAI but serves it on
+		// /inference and returns the same {"text": ...} JSON shape.
+		newByKey["whisper-local"] = &openAILike{
+			cfg: config.Provider{
+				Name:    "whisper-local",
+				Type:    "openai",
+				BaseURL: "http://127.0.0.1:" + strconv.Itoa(lm.WhisperPort),
+				Models:  []string{"whisper-1"},
+			},
+			pathOverrides: map[Kind]string{
+				KindTranscriptions: "/inference",
+				KindTranslations:   "/inference",
+			},
+			// OpenAI transcribes in the source language; whisper.cpp defaults
+			// to language=en which translates instead. Only applied when the
+			// client didn't send its own language field.
+			defaultFormFields: map[string]string{"language": "auto"},
+		}
 	}
 	if lm.PiperEnabled {
 		newByKey["piper-local"] = newOpenAILike(config.Provider{
 			Name:    "piper-local",
 			Type:    "openai",
-			BaseURL: "http://127.0.0.1:" + strconv.Itoa(lm.PiperPort),
+			BaseURL: "http://127.0.0.1:" + strconv.Itoa(lm.PiperPort) + "/v1",
 			Models:  []string{"tts-1"},
 		}, nil)
-	}
-
-	// Stop and clean up any engines that are no longer active/present
-	for name, engine := range r.engines {
-		if !activeEngines[name] {
-			engine.Stop()
-			delete(r.engines, name)
-		}
 	}
 
 	r.byKey = newByKey
 }
 
-// LocalEngine returns the legacy built-in engine, or nil when legacy local models are disabled.
+// LocalEngine returns the built-in engine (never nil after NewRegistry).
 func (r *Registry) LocalEngine() *LocalEngine {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	return r.engines["_legacy_local"]
+	return r.engine
 }
 
-// RefreshLocalEngines rescans the models directory of every active local engine.
-// Call after downloading new model files so they become available without a
-// full reload.
+// RefreshLocalEngines rescans the models directory. Call after downloading
+// new model files so they become available without a full reload.
 func (r *Registry) RefreshLocalEngines() {
-	r.mu.RLock()
-	engines := make([]*LocalEngine, 0, len(r.engines))
-	for _, e := range r.engines {
-		engines = append(engines, e)
-	}
-	r.mu.RUnlock()
-	for _, e := range engines {
+	if e := r.LocalEngine(); e != nil {
 		e.Refresh()
 	}
 }
 
-// LocalModelsDir returns the models directory of the first configured
-// llama-server provider, falling back to the legacy local-models config. Used
-// as the download target for catalog models. Empty if none is configured.
+// LocalModelsDir returns the models directory used as the download target for
+// catalog models. Empty if not configured.
 func (r *Registry) LocalModelsDir() string {
-	for _, p := range r.cfg.Snapshot() {
-		if p.Type == "llama-server" && p.ModelsDir != "" {
-			return p.ModelsDir
-		}
-	}
 	return r.cfg.GetLocalModels().ModelsDir
 }
 
-// Shutdown stops all running local engines. Call on process exit.
+// Shutdown stops the local engine and its sidecars. Call on process exit.
 func (r *Registry) Shutdown() {
-	r.mu.Lock()
-	engines := r.engines
-	r.engines = nil
-	r.mu.Unlock()
-	for _, engine := range engines {
-		engine.Stop()
+	if e := r.LocalEngine(); e != nil {
+		e.Stop()
 	}
 }
 

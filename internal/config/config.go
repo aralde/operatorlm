@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 
 	"github.com/BurntSushi/toml"
@@ -186,6 +187,10 @@ type LocalModelsConfig struct {
 	NGPULayers int `toml:"ngpu_layers,omitempty" json:"ngpu_layers,omitempty"`
 	// ExtraArgs are appended verbatim to the llama-server command line.
 	ExtraArgs []string `toml:"extra_args,omitempty" json:"extra_args,omitempty"`
+	// NoThinking launches llama-server with --reasoning-budget 0, disabling
+	// model "thinking"/reasoning output. Useful for structured-output flows
+	// where reasoning tokens eat the whole request timeout before any content.
+	NoThinking bool `toml:"no_thinking,omitempty" json:"no_thinking"`
 
 	// Local Audio STT (whisper.cpp)
 	WhisperEnabled    bool   `toml:"whisper_enabled" json:"whisper_enabled"`
@@ -200,51 +205,76 @@ type LocalModelsConfig struct {
 	PiperModel   string `toml:"piper_model,omitempty" json:"piper_model,omitempty"`
 }
 
-// GetDefaultPaths returns default models directory and llama-server path
-// relative to the current executable.
-func GetDefaultPaths() (modelsDir string, llamaServerPath string) {
+// exeDir returns the absolute directory of the running executable, or "".
+func exeDir() string {
 	exePath, err := os.Executable()
-	var baseDir string
-	if err == nil {
-		baseDir = filepath.Dir(exePath)
-	} else {
-		baseDir = "."
+	if err != nil {
+		return ""
 	}
-	absBaseDir, err := filepath.Abs(baseDir)
-	if err == nil {
-		baseDir = absBaseDir
+	dir, err := filepath.Abs(filepath.Dir(exePath))
+	if err != nil {
+		return filepath.Dir(exePath)
 	}
-	modelsDir = filepath.Join(baseDir, "localModels")
-	if runtime.GOOS == "windows" {
-		llamaServerPath = filepath.Join(baseDir, "llama-server", "llama-server.exe")
-	} else {
-		llamaServerPath = filepath.Join(baseDir, "llama-server", "llama-server")
-	}
-	return modelsDir, llamaServerPath
+	return dir
 }
 
-// GetDefaultAudioPaths returns default whisper-server and piper paths
-// relative to the current executable.
-func GetDefaultAudioPaths() (whisperPath string, piperPath string) {
-	exePath, err := os.Executable()
-	var baseDir string
-	if err == nil {
-		baseDir = filepath.Dir(exePath)
-	} else {
-		baseDir = "."
-	}
-	absBaseDir, err := filepath.Abs(baseDir)
-	if err == nil {
-		baseDir = absBaseDir
-	}
+// binaryName appends .exe on Windows.
+func binaryName(name string) string {
 	if runtime.GOOS == "windows" {
-		whisperPath = filepath.Join(baseDir, "whisper-server", "whisper-server.exe")
-		piperPath = filepath.Join(baseDir, "piper", "piper.exe")
-	} else {
-		whisperPath = filepath.Join(baseDir, "whisper-server", "whisper-server")
-		piperPath = filepath.Join(baseDir, "piper", "piper")
+		return name + ".exe"
 	}
-	return whisperPath, piperPath
+	return name
+}
+
+// defaultToolPath returns the preferred default location of a bundled tool's
+// binary: ~/.operatorlm/bin/<tool>/<tool>[.exe]. Earlier releases defaulted to
+// <exe-dir>/<tool>/; if a binary already exists there it wins, so upgrades
+// keep finding already-downloaded binaries.
+func defaultToolPath(tool string) string {
+	bin := binaryName(tool)
+	if base := exeDir(); base != "" {
+		legacy := filepath.Join(base, tool, bin)
+		if fileExistsCfg(legacy) {
+			return legacy
+		}
+	}
+	home, err := configDir()
+	if err != nil {
+		home = "."
+	}
+	return filepath.Join(home, "bin", tool, bin)
+}
+
+// GetDefaultPaths returns the default models directory and llama-server path.
+func GetDefaultPaths() (modelsDir string, llamaServerPath string) {
+	if base := exeDir(); base != "" {
+		if legacy := filepath.Join(base, "localModels"); dirExists(legacy) {
+			modelsDir = legacy
+		}
+	}
+	if modelsDir == "" {
+		home, err := configDir()
+		if err != nil {
+			home = "."
+		}
+		modelsDir = filepath.Join(home, "models")
+	}
+	return modelsDir, defaultToolPath("llama-server")
+}
+
+// GetDefaultAudioPaths returns default whisper-server and piper paths.
+func GetDefaultAudioPaths() (whisperPath string, piperPath string) {
+	return defaultToolPath("whisper-server"), defaultToolPath("piper")
+}
+
+func dirExists(p string) bool {
+	info, err := os.Stat(p)
+	return err == nil && info.IsDir()
+}
+
+func fileExistsCfg(p string) bool {
+	info, err := os.Stat(p)
+	return err == nil && !info.IsDir()
 }
 
 // WithDefaults fills zero values with sensible defaults.
@@ -321,22 +351,6 @@ func defaultConfig(path string) *Config {
 			{Name: "groq", Type: "groq", BaseURL: "https://api.groq.com/openai/v1", Prefix: "groq/", APIKeyRef: "operatorlm:groq"},
 			{Name: "gemini", Type: "gemini", BaseURL: "https://generativelanguage.googleapis.com/v1beta", Prefix: "gemini/", APIKeyRef: "operatorlm:gemini"},
 		},
-		Aliases: []Alias{
-			{
-				Name:     "whisper-1",
-				Strategy: "fallback",
-				Targets: []AliasTarget{
-					{Provider: "whisper-local", UpstreamModel: "whisper-1", Order: 1},
-				},
-			},
-			{
-				Name:     "tts-1",
-				Strategy: "fallback",
-				Targets: []AliasTarget{
-					{Provider: "piper-local", UpstreamModel: "tts-1", Order: 1},
-				},
-			},
-		},
 		path: path,
 	}
 }
@@ -374,7 +388,89 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("parse %s: %w", path, err)
 	}
 	cfg.path = path
+	if cfg.migrate() {
+		if err := cfg.Save(); err != nil {
+			return nil, fmt.Errorf("save migrated config: %w", err)
+		}
+	}
 	return cfg, nil
+}
+
+// migrate upgrades legacy on-disk layouts in place. Returns true when the
+// config changed and must be re-saved.
+func (c *Config) migrate() bool {
+	changed := false
+
+	// Providers of type "llama-server" predate the built-in local engine and
+	// competed with it for the same route prefix. Fold the first one into
+	// [local_models] (unless the engine is already configured) and drop them
+	// all, so local models have a single owner: the Local models page.
+	removed := map[string]bool{}
+	kept := c.Providers[:0]
+	for _, p := range c.Providers {
+		if p.Type != "llama-server" {
+			kept = append(kept, p)
+			continue
+		}
+		changed = true
+		removed[p.Name] = true
+		lm := &c.LocalModels
+		if !lm.Enabled && !p.Disabled {
+			lm.Enabled = true
+			if lm.ModelsDir == "" {
+				lm.ModelsDir = p.ModelsDir
+			}
+			if lm.LlamaServerPath == "" {
+				lm.LlamaServerPath = p.LlamaServerPath
+			}
+			if lm.Prefix == "" {
+				lm.Prefix = p.Prefix
+			}
+			if lm.Port == 0 {
+				lm.Port = p.Port
+			}
+			if lm.ContextSize == 0 {
+				lm.ContextSize = p.ContextSize
+			}
+			if lm.NGPULayers == 0 {
+				lm.NGPULayers = p.NGPULayers
+			}
+			if len(lm.ExtraArgs) == 0 {
+				lm.ExtraArgs = p.ExtraArgs
+			}
+		}
+	}
+	c.Providers = kept
+
+	// Aliases that targeted a removed llama-server provider keep working
+	// through the built-in engine.
+	if len(removed) > 0 {
+		for ai := range c.Aliases {
+			for ti := range c.Aliases[ai].Targets {
+				if removed[c.Aliases[ai].Targets[ti].Provider] {
+					c.Aliases[ai].Targets[ti].Provider = "local"
+					changed = true
+				}
+			}
+		}
+	}
+
+	// Audio binary paths used to be auto-filled relative to the executable.
+	// If such a path points at nothing, clear it so the current default
+	// (~/.operatorlm/bin/...) applies and the download buttons target it.
+	if base := exeDir(); base != "" {
+		resetStale := func(p *string) {
+			if *p != "" && strings.HasPrefix(*p, base) && !fileExistsCfg(*p) {
+				*p = ""
+				changed = true
+			}
+		}
+		resetStale(&c.LocalModels.WhisperServerPath)
+		resetStale(&c.LocalModels.PiperPath)
+		resetStale(&c.LocalModels.LlamaServerPath)
+	}
+
+	return changed
 }
 
 func (c *Config) Save() error {

@@ -90,8 +90,7 @@ const DEFAULTS = {
   bedrock:         { prefix: 'bedrock/',    base_url: 'https://bedrock-runtime.us-east-1.amazonaws.com/openai/v1' },
   'azure-openai':  { prefix: 'azure/',      base_url: 'https://YOUR-RESOURCE.openai.azure.com', api_version: '2024-10-21' },
   antigravity:     { prefix: 'antigravity/', base_url: '' },
-  'llama-server':  { prefix: 'local/',      base_url: '' },
-  custom:          { prefix: 'local/',      base_url: 'http://localhost:11434/v1' },
+  custom:          { prefix: 'custom/',     base_url: 'http://localhost:8080/v1' },
 };
 
 // in-memory snapshots
@@ -178,19 +177,17 @@ function autocompleteByType() {
   const isAntigravity = t === 'antigravity';
   const isAzure   = t === 'azure-openai';
   const isCustom  = t === 'custom';
-  const isLlama   = t === 'llama-server';
-  apikeyBlock.hidden = isChatGPT || isLlama;
-  if (apikeyField) apikeyField.hidden = isAntigravity || isLlama;
+  apikeyBlock.hidden = isChatGPT;
+  if (apikeyField) apikeyField.hidden = isAntigravity;
   chatgptBlock.hidden = !isChatGPT;
-  document.getElementById('llamacpp-block').hidden = !isLlama;
-  provFields.apiKey.required = !isChatGPT && !isCustom && !isAntigravity && !isLlama;
-  provFields.base.required = !isChatGPT && !isAntigravity && !isLlama;
-  provFields.base.disabled = isChatGPT || isAntigravity || isLlama;
-  if (isChatGPT || isAntigravity || isLlama) provFields.base.value = '';
+  provFields.apiKey.required = !isChatGPT && !isCustom && !isAntigravity;
+  provFields.base.required = !isChatGPT && !isAntigravity;
+  provFields.base.disabled = isChatGPT || isAntigravity;
+  if (isChatGPT || isAntigravity) provFields.base.value = '';
   const apiVerField = document.getElementById('api-version-field');
   if (apiVerField) apiVerField.hidden = !isAzure;
   const baseField = document.getElementById('base-url-field');
-  if (baseField) baseField.hidden = isChatGPT || isAntigravity || isLlama;
+  if (baseField) baseField.hidden = isChatGPT || isAntigravity;
   const antProjField = document.getElementById('antigravity-project-field');
   if (antProjField) antProjField.hidden = !isAntigravity;
   const mainSearch = document.getElementById('antigravity-project-search');
@@ -199,23 +196,6 @@ function autocompleteByType() {
   }
   const mainSel = document.getElementById('antigravity-project-select');
 
-  if (isLlama && localModelsConfig) {
-    const mdInput = $('[name=models_dir]', provForm);
-    const lspInput = $('[name=llama_server_path]', provForm);
-    const portInput = $('[name=port]', provForm);
-    const ctxInput = $('[name=context_size]', provForm);
-    const ngpuInput = $('[name=ngpu_layers]', provForm);
-    const eaInput = $('[name=extra_args]', provForm);
-
-    if (mdInput && !mdInput.value) mdInput.value = localModelsConfig.models_dir || '';
-    if (lspInput && !lspInput.value) lspInput.value = localModelsConfig.llama_server_path || '';
-    if (portInput && !portInput.value) portInput.value = localModelsConfig.port || '';
-    if (ctxInput && !ctxInput.value) ctxInput.value = localModelsConfig.context_size || '';
-    if (ngpuInput && !ngpuInput.value) ngpuInput.value = localModelsConfig.ngpu_layers || '';
-    if (eaInput && !eaInput.value && localModelsConfig.extra_args) {
-      eaInput.value = localModelsConfig.extra_args.join('\n');
-    }
-  }
   if (mainSel) {
     populateProjectSelect(mainSel);
   }
@@ -256,16 +236,8 @@ probeBtn.addEventListener('click', async () => {
     api_key: provFields.apiKey.value,
     api_version: (provFields.apiVer && provFields.apiVer.value) || '',
   };
-  if (payload.type === 'llama-server') {
-    payload.models_dir = $('[name=models_dir]', provForm).value;
-  }
-  const keyOptional = payload.type === 'custom' || payload.type === 'antigravity' || payload.type === 'llama-server';
-  const baseOptional = payload.type === 'antigravity' || payload.type === 'llama-server';
-  if (payload.type === 'llama-server' && !payload.models_dir) {
-    probeStatus.textContent = 'Fill models folder first';
-    probeStatus.className = 'status err';
-    return;
-  }
+  const keyOptional = payload.type === 'custom' || payload.type === 'antigravity';
+  const baseOptional = payload.type === 'antigravity';
   if ((!payload.base_url && !baseOptional) || (!payload.api_key && !keyOptional)) {
     probeStatus.textContent = baseOptional
       ? 'Fill prefix first'
@@ -310,20 +282,12 @@ provForm.addEventListener('submit', async e => {
     name:        provFields.name.value,
     type:        provFields.type.value,
     prefix:      provFields.prefix.value,
-    base_url:    (provFields.type.value === 'chatgpt-codex' || provFields.type.value === 'antigravity' || provFields.type.value === 'llama-server') ? '' : provFields.base.value,
+    base_url:    (provFields.type.value === 'chatgpt-codex' || provFields.type.value === 'antigravity') ? '' : provFields.base.value,
     api_key:     provFields.apiKey.value,
     api_version: (provFields.apiVer && provFields.apiVer.value) || '',
     project_id:  (provFields.type.value === 'antigravity') ? document.getElementById('antigravity-project-select').value : '',
     models:      selected,
   };
-  if (payload.type === 'llama-server') {
-    payload.models_dir = $('[name=models_dir]', provForm).value;
-    payload.llama_server_path = $('[name=llama_server_path]', provForm).value;
-    payload.port = parseInt($('[name=port]', provForm).value, 10) || 8081;
-    payload.context_size = parseInt($('[name=context_size]', provForm).value, 10) || 4096;
-    payload.ngpu_layers = parseInt($('[name=ngpu_layers]', provForm).value, 10) || 0;
-    payload.extra_args = $('[name=extra_args]', provForm).value.split('\n').map(s => s.trim()).filter(Boolean);
-  }
   try {
     await api('POST', '/admin/providers', payload);
     provForm.reset();
@@ -471,18 +435,8 @@ function openEditDialog(p) {
   editProbeStatus.className = 'status';
   editDisabled.checked = !!p.disabled;
   editOriginalDisabled = !!p.disabled;
-  const isLlama = p.type === 'llama-server';
-  editBaseFld.hidden = (p.type === 'chatgpt-codex' || p.type === 'antigravity' || isLlama);
+  editBaseFld.hidden = (p.type === 'chatgpt-codex' || p.type === 'antigravity');
   editFetchBlock.hidden = (p.type === 'chatgpt-codex');
-  document.getElementById('edit-llamacpp-block').hidden = !isLlama;
-  if (isLlama) {
-    document.getElementById('edit-models-dir').value = p.models_dir || localModelsConfig.models_dir || '';
-    document.getElementById('edit-llama-server-path').value = p.llama_server_path || localModelsConfig.llama_server_path || '';
-    document.getElementById('edit-port').value = p.port || localModelsConfig.port || 8081;
-    document.getElementById('edit-context-size').value = p.context_size || localModelsConfig.context_size || 4096;
-    document.getElementById('edit-ngpu-layers').value = p.ngpu_layers || localModelsConfig.ngpu_layers || 0;
-    document.getElementById('edit-extra-args').value = (p.extra_args || localModelsConfig.extra_args || []).join('\n');
-  }
   const editProjFld = document.getElementById('edit-antigravity-project-field');
   const editProjSel = document.getElementById('edit-project-id');
   const editProjSearch = document.getElementById('edit-project-search');
@@ -514,9 +468,6 @@ editProbeBtn.addEventListener('click', async () => {
   editProbeStatus.className = 'status pending';
   try {
     const payload = { provider: name };
-    if (editType.value === 'llama-server') {
-      payload.models_dir = document.getElementById('edit-models-dir').value;
-    }
     const body = await api('POST', '/admin/providers/probe', payload);
     const models = body.models || [];
     if (!models.length) {
@@ -547,18 +498,10 @@ editForm.addEventListener('submit', async e => {
     name,
     type,
     prefix:   editPrefix.value,
-    base_url: (type === 'chatgpt-codex' || type === 'antigravity' || type === 'llama-server') ? '' : editBase.value,
+    base_url: (type === 'chatgpt-codex' || type === 'antigravity') ? '' : editBase.value,
     project_id: (type === 'antigravity') ? document.getElementById('edit-project-id').value : '',
     models,
   };
-  if (type === 'llama-server') {
-    payload.models_dir = document.getElementById('edit-models-dir').value;
-    payload.llama_server_path = document.getElementById('edit-llama-server-path').value;
-    payload.port = parseInt(document.getElementById('edit-port').value, 10) || 8081;
-    payload.context_size = parseInt(document.getElementById('edit-context-size').value, 10) || 4096;
-    payload.ngpu_layers = parseInt(document.getElementById('edit-ngpu-layers').value, 10) || 0;
-    payload.extra_args = document.getElementById('edit-extra-args').value.split('\n').map(s => s.trim()).filter(Boolean);
-  }
 
   try {
     await api('POST', '/admin/providers', payload);
@@ -1019,6 +962,166 @@ function exampleCard(model, badgeText, badgeClass) {
   return card;
 }
 
+// ── Local audio examples (tts-1 / whisper-1) ────────────────
+let lastTtsBlob = null; // last TTS output, reusable as whisper input
+
+async function copyText(text, btn) {
+  try {
+    await navigator.clipboard.writeText(text);
+    const original = btn.textContent;
+    btn.textContent = 'Copied ✓';
+    setTimeout(() => { btn.textContent = original; }, 1400);
+  } catch (e) {
+    toast('Clipboard failed: ' + e.message, 'error');
+  }
+}
+
+function ttsExampleCard() {
+  const card = document.createElement('div');
+  card.className = 'example';
+  const lmc = localModelsConfig || {};
+  const defVoice = (lmc.piper_model || '').replace(/\.onnx$/i, '');
+  const voices = lmc.piper_voices || [];
+  const voiceOptions =
+    `<option value="">default${defVoice ? ` (${defVoice})` : ''}</option>` +
+    voices.filter(v => v !== defVoice)
+          .map(v => `<option value="${v}">${v}</option>`).join('');
+  card.innerHTML = `
+    <div class="example-head">
+      <div class="example-name">tts-1</div>
+      <div class="example-meta"><span class="tag">speech · Piper</span></div>
+    </div>
+    <pre class="curl-pre"></pre>
+    <select class="tts-voice" style="width:100%; margin:.4rem 0;" title="Voice (installed Piper voices; download more in Local models)">${voiceOptions}</select>
+    <audio class="tts-audio" controls style="width:100%; margin:.4rem 0; display:none;"></audio>
+    <div class="example-actions">
+      <button type="button" class="btn-secondary copy-btn">Copy</button>
+      <button type="button" class="btn-primary run-btn">Run</button>
+    </div>`;
+  const buildTtsPayload = () => {
+    const p = { model: 'tts-1', input: tryPromptIn.value || 'Hola, esto es una prueba.' };
+    p.voice = $('.tts-voice', card).value || 'default';
+    return p;
+  };
+  const buildTtsCurl = () => {
+    const body = JSON.stringify(buildTtsPayload());
+    return `curl http://${location.host}/v1/audio/speech \\
+  -H "Content-Type: application/json" \\
+  -d '${body.replace(/'/g, "'\\''")}' \\
+  -o speech.wav`;
+  };
+  const updateCurl = () => $('.curl-pre', card).textContent = buildTtsCurl();
+  updateCurl();
+  tryPromptIn.addEventListener('input', updateCurl);
+  $('.tts-voice', card).addEventListener('change', updateCurl);
+  $('.copy-btn', card).addEventListener('click', e => copyText(buildTtsCurl(), e.currentTarget));
+  $('.run-btn',  card).addEventListener('click', () => runTTS(card, buildTtsCurl(), buildTtsPayload()));
+  return card;
+}
+
+async function runTTS(card, curl, payload) {
+  const model = 'tts-1';
+  setRunningMeta(model, false);
+  $$('.result-tab').forEach(b => b.classList.toggle('active', b.dataset.rt === 'content'));
+  const t0 = performance.now();
+  try {
+    const res = await fetch('/v1/audio/speech', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const ms = Math.round(performance.now() - t0);
+    setDoneMeta(model, false, res.status, ms);
+    if (!res.ok) {
+      const err = await res.text();
+      lastResult = { content: err, raw: err, curl };
+      renderResultBody('content');
+      return;
+    }
+    const blob = await res.blob();
+    lastTtsBlob = blob;
+    const audio = $('.tts-audio', card);
+    if (audio.src) URL.revokeObjectURL(audio.src);
+    audio.src = URL.createObjectURL(blob);
+    audio.style.display = 'block';
+    const content = `Audio generated (${(blob.size / 1024).toFixed(0)} KiB WAV). ` +
+      `Press play on the tts-1 card. whisper-1 will reuse it as input when no file is chosen.`;
+    lastResult = { content, raw: `(binary audio, ${blob.size} bytes)`, curl };
+    renderResultBody('content');
+  } catch (e) {
+    const ms = Math.round(performance.now() - t0);
+    resultMeta.innerHTML = `
+      <span class="pill err">network</span>
+      <code class="small">${model}</code>
+      <span class="muted small">${ms} ms</span>
+    `;
+    lastResult = { content: e.message, raw: e.message, curl };
+    renderResultBody('content');
+  }
+}
+
+function sttExampleCard() {
+  const card = document.createElement('div');
+  card.className = 'example';
+  card.innerHTML = `
+    <div class="example-head">
+      <div class="example-name">whisper-1</div>
+      <div class="example-meta"><span class="tag">transcription · whisper.cpp</span></div>
+    </div>
+    <pre class="curl-pre"></pre>
+    <input type="file" class="stt-file" accept="audio/*,.wav,.mp3,.m4a,.ogg,.flac" style="margin:.4rem 0; width:100%;" />
+    <div class="example-actions">
+      <button type="button" class="btn-secondary copy-btn">Copy</button>
+      <button type="button" class="btn-primary run-btn">Run</button>
+    </div>`;
+  const sttCurl = `curl http://${location.host}/v1/audio/transcriptions \\
+  -F model=whisper-1 \\
+  -F file=@audio.wav`;
+  $('.curl-pre', card).textContent = sttCurl;
+  $('.copy-btn', card).addEventListener('click', e => copyText(sttCurl, e.currentTarget));
+  $('.run-btn',  card).addEventListener('click', () => runSTT(card, sttCurl));
+  return card;
+}
+
+async function runSTT(card, curl) {
+  const model = 'whisper-1';
+  const picked = $('.stt-file', card).files[0];
+  const file = picked || (lastTtsBlob ? new File([lastTtsBlob], 'tts-output.wav', { type: 'audio/wav' }) : null);
+  if (!file) {
+    toast('Choose an audio file, or run tts-1 first to reuse its output', 'error');
+    return;
+  }
+  setRunningMeta(model, false);
+  $$('.result-tab').forEach(b => b.classList.toggle('active', b.dataset.rt === 'content'));
+  const t0 = performance.now();
+  try {
+    const fd = new FormData();
+    fd.append('model', model);
+    fd.append('file', file, file.name || 'audio.wav');
+    const res = await fetch('/v1/audio/transcriptions', { method: 'POST', body: fd });
+    const raw = await res.text();
+    const ms = Math.round(performance.now() - t0);
+    setDoneMeta(model, false, res.status, ms);
+    let content = raw;
+    try {
+      const obj = JSON.parse(raw);
+      if (typeof obj?.text === 'string') content = `“${obj.text.trim()}”\n\n(source: ${picked ? file.name : 'last tts-1 output'})`;
+      else if (obj?.error) content = JSON.stringify(obj.error, null, 2);
+    } catch (_) { /* keep raw */ }
+    lastResult = { content, raw, curl };
+    renderResultBody('content');
+  } catch (e) {
+    const ms = Math.round(performance.now() - t0);
+    resultMeta.innerHTML = `
+      <span class="pill err">network</span>
+      <code class="small">${model}</code>
+      <span class="muted small">${ms} ms</span>
+    `;
+    lastResult = { content: e.message, raw: e.message, curl };
+    renderResultBody('content');
+  }
+}
+
 function renderTryIt() {
   // Slugs: every (provider.prefix + model) pair from configured providers
   slugsHost.innerHTML = '';
@@ -1029,8 +1132,34 @@ function renderTryIt() {
       slugsHost.appendChild(exampleCard((p.prefix || '') + m, p.type));
     }
   }
+  // Built-in local engine: every model discovered on disk is routable
+  if (localModelsConfig && localModelsConfig.enabled) {
+    const prefix = localModelsConfig.prefix || 'local/';
+    for (const m of (localModelsConfig.models || [])) {
+      slugCount++;
+      slugsHost.appendChild(exampleCard(prefix + m.id, 'local'));
+    }
+  }
   slugsCount.textContent = slugCount;
   slugsEmpty.hidden = slugCount > 0;
+
+  // Local audio (whisper/piper sidecars) — only rebuild when the set of
+  // enabled sidecars changes, so a running <audio> player survives re-renders.
+  const audioCard = document.getElementById('tryit-audio-card');
+  const audioHost = document.getElementById('tryit-audio');
+  if (audioCard && audioHost) {
+    const lmc = localModelsConfig || {};
+    const wantKey = `${!!lmc.piper_enabled}|${!!lmc.whisper_enabled}|${lmc.piper_model || ''}|${(lmc.piper_voices || []).join(',')}`;
+    if (audioHost.dataset.built !== wantKey) {
+      audioHost.dataset.built = wantKey;
+      audioHost.innerHTML = '';
+      let audioCount = 0;
+      if (lmc.piper_enabled)   { audioHost.appendChild(ttsExampleCard()); audioCount++; }
+      if (lmc.whisper_enabled) { audioHost.appendChild(sttExampleCard()); audioCount++; }
+      document.getElementById('tryit-audio-count').textContent = audioCount;
+      audioCard.hidden = audioCount === 0;
+    }
+  }
 
   // Aliases
   aliasesHost.innerHTML = '';
@@ -1399,6 +1528,7 @@ function renderLocalModels(st) {
 
 function applyLocalModelsStatus(st) {
   localModelsConfig = st;
+  renderTryIt();
   $('[name=enabled]', localModelsForm).checked         = !!st.enabled;
   $('[name=models_dir]', localModelsForm).value        = st.models_dir || '';
   $('[name=llama_server_path]', localModelsForm).value = st.llama_server_path || '';
@@ -1406,6 +1536,7 @@ function applyLocalModelsStatus(st) {
   $('[name=port]', localModelsForm).value              = st.port || '';
   $('[name=context_size]', localModelsForm).value      = st.context_size || '';
   $('[name=ngpu_layers]', localModelsForm).value       = st.ngpu_layers || '';
+  $('[name=no_thinking]', localModelsForm).checked     = !!st.no_thinking;
 
   // Audio fields
   $('[name=whisper_enabled]', localModelsForm).checked     = !!st.whisper_enabled;
@@ -1521,6 +1652,7 @@ async function loadLocalModels() {
     localModelsStatus.style.color = 'var(--danger)';
   }
   loadCatalog();
+  loadPiperVoices();
 }
 
 // ── Recommended models catalog ──────────────────────────────
@@ -1610,6 +1742,7 @@ localModelsForm.addEventListener('submit', async e => {
     port:                num('port'),
     context_size:        num('context_size'),
     ngpu_layers:         num('ngpu_layers'),
+    no_thinking:         $('[name=no_thinking]', localModelsForm).checked,
 
     whisper_enabled:     $('[name=whisper_enabled]', localModelsForm).checked,
     whisper_server_path: (fd.get('whisper_server_path') || '').toString().trim(),
@@ -1673,6 +1806,90 @@ localModelsDownloadPiper.addEventListener('click', async () => {
     localModelsDownloadPiper.disabled = false;
   }
 });
+
+// ── Piper voice catalog (languages / regional variants) ─────
+const piperVoiceSelect      = $('#piper-voice-select');
+const piperVoiceDownloadBtn = $('#piper-voice-download');
+const piperVoiceStatus      = $('#piper-voice-status');
+let piperVoicesLoaded = false;
+let piperVoicePoll    = null;
+
+async function loadPiperVoices(force = false) {
+  if (!piperVoiceSelect || (piperVoicesLoaded && !force)) return;
+  try {
+    const voices = await api('GET', '/admin/localmodels/piper/voices');
+    piperVoicesLoaded = true;
+    const prev = piperVoiceSelect.value;
+    piperVoiceSelect.innerHTML = '<option value="">— Pick a voice to download —</option>';
+    const groups = new Map();
+    for (const v of voices) {
+      const label = v.country ? `${v.lang_name} — ${v.country}` : (v.lang_name || v.language);
+      if (!groups.has(label)) {
+        const og = document.createElement('optgroup');
+        og.label = label;
+        groups.set(label, og);
+        piperVoiceSelect.appendChild(og);
+      }
+      const o = document.createElement('option');
+      o.value = v.key;
+      const size  = v.size_bytes ? ` · ${fmtBytes(v.size_bytes)}` : '';
+      const state = v.installed ? ' · installed ✓'
+                  : (v.download && v.download.status === 'downloading' ? ' · downloading…' : '');
+      o.textContent = `${v.language} · ${v.speaker} (${v.quality})${size}${state}`;
+      groups.get(label).appendChild(o);
+    }
+    if (prev) piperVoiceSelect.value = prev;
+  } catch (e) {
+    piperVoiceSelect.innerHTML = '<option value="">Voice catalog unavailable (offline?)</option>';
+  }
+}
+
+if (piperVoiceDownloadBtn) {
+  piperVoiceDownloadBtn.addEventListener('click', async () => {
+    const key = piperVoiceSelect.value;
+    if (!key) { toast('Pick a voice first', 'error'); return; }
+    piperVoiceDownloadBtn.disabled = true;
+    piperVoiceStatus.style.color = '';
+    piperVoiceStatus.textContent = `Starting download of ${key}…`;
+    try {
+      await api('POST', '/admin/localmodels/piper/voices/download', { key });
+      pollPiperVoice(key);
+    } catch (e) {
+      toast(e.message, 'error');
+      piperVoiceStatus.textContent = '';
+      piperVoiceDownloadBtn.disabled = false;
+    }
+  });
+}
+
+function pollPiperVoice(key) {
+  clearTimeout(piperVoicePoll);
+  piperVoicePoll = setTimeout(async () => {
+    try {
+      const voices = await api('GET', '/admin/localmodels/piper/voices');
+      const v = voices.find(x => x.key === key);
+      const dl = (v && v.download) || {};
+      if (dl.status === 'downloading') {
+        const pct = dl.total > 0 ? Math.min(100, Math.round(dl.downloaded / dl.total * 100)) : 0;
+        piperVoiceStatus.textContent = `Downloading ${key}… ${pct}% (${fmtBytes(dl.downloaded || 0)} / ${fmtBytes(dl.total || 0)})`;
+        pollPiperVoice(key);
+        return;
+      }
+      piperVoiceDownloadBtn.disabled = false;
+      if (dl.status === 'error') {
+        piperVoiceStatus.textContent = `Error: ${dl.error}`;
+        piperVoiceStatus.style.color = 'var(--danger)';
+      } else {
+        piperVoiceStatus.textContent = `${key} installed ✓ — pick it in Try it, or set it as the default voice above`;
+        piperVoiceStatus.style.color = 'var(--success)';
+        loadPiperVoices(true);
+        loadLocalModels(); // refreshes piper_voices → Try it dropdown
+      }
+    } catch (_) {
+      piperVoiceDownloadBtn.disabled = false;
+    }
+  }, 1000);
+}
 
 // ─────────────────────────────────────────────────────────────
 //  Render

@@ -22,6 +22,14 @@ type openAILike struct {
 	// bodyTransform, when set, rewrites the JSON request body after the model
 	// field is rewritten. Used by OpenRouter to inject provider-routing prefs.
 	bodyTransform func([]byte) []byte
+	// pathOverrides remaps the upstream path for a request kind. Used by the
+	// whisper.cpp sidecar, whose transcription endpoint is /inference.
+	pathOverrides map[Kind]string
+	// defaultFormFields are added to multipart bodies (transcriptions /
+	// translations) when the client did not send them. Used to give the
+	// whisper.cpp sidecar OpenAI-parity defaults (language=auto: transcribe
+	// in the source language instead of whisper.cpp's translate-to-English).
+	defaultFormFields map[string]string
 }
 
 func newOpenAILike(cfg config.Provider, extraHeaders map[string]string) Provider {
@@ -63,6 +71,9 @@ func (o *openAILike) BuildRequest(ctx context.Context, kind Kind, body []byte, a
 	case KindTranslations:
 		path = "/audio/translations"
 	}
+	if override, ok := o.pathOverrides[kind]; ok {
+		path = override
+	}
 	url := strings.TrimRight(o.cfg.BaseURL, "/") + path
 
 	var rewritten []byte
@@ -74,7 +85,7 @@ func (o *openAILike) BuildRequest(ctx context.Context, kind Kind, body []byte, a
 		if err != nil {
 			return nil, fmt.Errorf("detect multipart content type: %w", err)
 		}
-		rewritten, contentType, err = rewriteMultipartModel(body, origContentType, att.UpstreamModel)
+		rewritten, contentType, err = rewriteMultipartModel(body, origContentType, att.UpstreamModel, o.defaultFormFields)
 		if err != nil {
 			return nil, fmt.Errorf("rewrite multipart model: %w", err)
 		}
@@ -237,7 +248,7 @@ func rewriteModel(body []byte, model string) []byte {
 	return out
 }
 
-func rewriteMultipartModel(body []byte, contentType string, newModel string) ([]byte, string, error) {
+func rewriteMultipartModel(body []byte, contentType string, newModel string, defaults map[string]string) ([]byte, string, error) {
 	_, params, err := mime.ParseMediaType(contentType)
 	if err != nil {
 		return nil, "", err
@@ -251,6 +262,7 @@ func rewriteMultipartModel(body []byte, contentType string, newModel string) ([]
 	var buf bytes.Buffer
 	mw := multipart.NewWriter(&buf)
 
+	seen := map[string]bool{}
 	for {
 		part, err := mr.NextPart()
 		if err == io.EOF {
@@ -265,10 +277,16 @@ func rewriteMultipartModel(body []byte, contentType string, newModel string) ([]
 			return nil, "", err
 		}
 
+		seen[part.FormName()] = true
 		if part.FormName() == "model" && newModel != "" {
 			_, _ = pw.Write([]byte(newModel))
 		} else {
 			_, _ = io.Copy(pw, part)
+		}
+	}
+	for k, v := range defaults {
+		if !seen[k] {
+			_ = mw.WriteField(k, v)
 		}
 	}
 	_ = mw.Close()

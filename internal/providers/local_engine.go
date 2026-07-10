@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"net/http"
 	"os"
@@ -66,8 +67,10 @@ func (e *LocalEngine) Reconfigure(cfg config.LocalModelsConfig) {
 	if old.Port != cfg.Port ||
 		old.LlamaServerPath != cfg.LlamaServerPath ||
 		old.ContextSize != cfg.ContextSize ||
-		old.NGPULayers != cfg.NGPULayers {
-		e.Stop()
+		old.NGPULayers != cfg.NGPULayers ||
+		old.NoThinking != cfg.NoThinking ||
+		strings.Join(old.ExtraArgs, "\n") != strings.Join(cfg.ExtraArgs, "\n") {
+		e.StopChat()
 	}
 
 	e.manageWhisper(cfg)
@@ -141,7 +144,23 @@ func (e *LocalEngine) EnsureRunning(ctx context.Context, modelID string) (string
 		return e.baseURL, nil
 	}
 	e.stopLocked()
-	if err := e.startLocked(ctx, cfg, m); err != nil {
+
+	// Per-model GPU offload: catalog models carry a recommended value so the
+	// CPU-only pick stays on CPU (ngl 0) even when the engine's global default
+	// is higher. Non-catalog models fall back to the engine setting.
+	ngl := cfg.NGPULayers
+	if cNGL, _, ok := CatalogSettingsFor(m.ID); ok {
+		ngl = cNGL
+	}
+	err := e.startLocked(ctx, cfg, m, ngl)
+	if err != nil && ngl > 0 {
+		// Some models crash llama.cpp when the graph is split between CPU and
+		// GPU (e.g. Gemma E4B's GGML_SCHED_MAX_SPLIT_INPUTS assert). Rather
+		// than failing the request, retry once fully on CPU.
+		log.Printf("local engine: %q failed with -ngl %d (%v); retrying on CPU (-ngl 0)", modelID, ngl, err)
+		err = e.startLocked(ctx, cfg, m, 0)
+	}
+	if err != nil {
 		return "", err
 	}
 	return e.baseURL, nil
@@ -154,6 +173,14 @@ func (e *LocalEngine) Stop() {
 	e.stopLocked()
 	e.stopWhisperLocked()
 	e.stopPiperLocked()
+}
+
+// StopChat terminates the llama-server process but leaves the whisper and
+// piper sidecars alone (they are gated by their own enabled flags).
+func (e *LocalEngine) StopChat() {
+	e.procMu.Lock()
+	defer e.procMu.Unlock()
+	e.stopLocked()
 }
 
 // --- internals (caller must hold procMu) ---
@@ -170,7 +197,7 @@ func (e *LocalEngine) isAlive() bool {
 	}
 }
 
-func (e *LocalEngine) startLocked(ctx context.Context, cfg config.LocalModelsConfig, m LocalModel) error {
+func (e *LocalEngine) startLocked(ctx context.Context, cfg config.LocalModelsConfig, m LocalModel, ngl int) error {
 	bin := cfg.LlamaServerPath
 	if !fileExists(bin) {
 		if _, err := exec.LookPath(bin); err != nil {
@@ -198,15 +225,13 @@ func (e *LocalEngine) startLocked(ctx context.Context, cfg config.LocalModelsCon
 	if m.MMProjPath != "" {
 		args = append(args, "--mmproj", m.MMProjPath)
 	}
-	// Per-model GPU offload: catalog models carry a recommended value so the
-	// CPU-only pick stays on CPU (ngl 0) even when the engine's global default
-	// is higher. Non-catalog models fall back to the engine setting.
-	ngl := cfg.NGPULayers
-	if cNGL, _, ok := CatalogSettingsFor(m.ID); ok {
-		ngl = cNGL
-	}
 	if ngl > 0 {
 		args = append(args, "-ngl", strconv.Itoa(ngl))
+	}
+	// Disable model "thinking": without this, reasoning-tuned models can spend
+	// the entire request timeout emitting reasoning_content before any answer.
+	if cfg.NoThinking {
+		args = append(args, "--reasoning-budget", "0")
 	}
 	args = append(args, cfg.ExtraArgs...)
 
@@ -317,6 +342,36 @@ func fileExists(p string) bool {
 	return err == nil && !info.IsDir()
 }
 
+// findModelFile locates a model file by name: absolute paths are used as-is,
+// otherwise dir/name is tried, then dir is walked recursively for the first
+// filename match (catalog downloads land in per-entry subfolders).
+func findModelFile(dir, name string) (string, bool) {
+	if name == "" {
+		return "", false
+	}
+	if filepath.IsAbs(name) {
+		return name, fileExists(name)
+	}
+	if direct := filepath.Join(dir, name); fileExists(direct) {
+		return direct, true
+	}
+	if dir == "" {
+		return "", false
+	}
+	var found string
+	_ = filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if !d.IsDir() && strings.EqualFold(d.Name(), name) {
+			found = p
+			return fs.SkipAll
+		}
+		return nil
+	})
+	return found, found != ""
+}
+
 // logWriter forwards stdout/stderr lines to the standard logger,
 // which setupLogging mirrors into ~/.operatorlm/operatorlm.log.
 type logWriter struct {
@@ -415,8 +470,8 @@ func (e *LocalEngine) startWhisperLocked(cfg config.LocalModelsConfig) {
 	if modelFile == "" {
 		modelFile = "ggml-base.bin" // Default fallback
 	}
-	modelPath := filepath.Join(cfg.ModelsDir, modelFile)
-	if _, err := os.Stat(modelPath); err != nil {
+	modelPath, ok := findModelFile(cfg.ModelsDir, modelFile)
+	if !ok {
 		log.Printf("local engine: whisper model file %q not found under %s", modelFile, cfg.ModelsDir)
 		return
 	}
@@ -492,25 +547,36 @@ func (e *LocalEngine) startPiperServer(port int, piperBin, modelsDir string) err
 		var req struct {
 			Model string `json:"model"`
 			Input string `json:"input"`
+			Voice string `json:"voice"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "invalid json: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 
-		modelPath := req.Model
-		if !strings.HasSuffix(modelPath, ".onnx") {
-			modelPath = modelPath + ".onnx"
-		}
-		fullModelPath := filepath.Join(modelsDir, modelPath)
-		if _, err := os.Stat(fullModelPath); err != nil {
-			e.dataMu.RLock()
-			defModel := e.cfg.PiperModel
-			e.dataMu.RUnlock()
-			if !strings.HasSuffix(defModel, ".onnx") && defModel != "" {
-				defModel = defModel + ".onnx"
+		// Resolve the voice, OpenAI-style: the `voice` field first (an
+		// installed .onnx stem, e.g. es_AR-daniela-high), then the model
+		// name, then the configured default. OpenAI voice names like
+		// "alloy" won't resolve to a file and fall through to the default.
+		e.dataMu.RLock()
+		defModel := e.cfg.PiperModel
+		e.dataMu.RUnlock()
+		var fullModelPath string
+		ok := false
+		for _, cand := range []string{req.Voice, req.Model, defModel} {
+			if cand == "" {
+				continue
 			}
-			fullModelPath = filepath.Join(modelsDir, defModel)
+			if !strings.HasSuffix(cand, ".onnx") {
+				cand += ".onnx"
+			}
+			if fullModelPath, ok = findModelFile(modelsDir, cand); ok {
+				break
+			}
+		}
+		if !ok {
+			http.Error(w, fmt.Sprintf("no piper voice found: none of voice=%q, model=%q or the default %q exist under %s", req.Voice, req.Model, defModel, modelsDir), http.StatusBadRequest)
+			return
 		}
 
 		wavBytes, err := runPiperCLI(piperBin, fullModelPath, req.Input)

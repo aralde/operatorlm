@@ -25,6 +25,7 @@ type localModelsStatus struct {
 
 	PiperInstalled       bool                    `json:"piper_installed"`
 	PiperDownload        providers.DownloadState `json:"piper_download"`
+	PiperVoices          []string                `json:"piper_voices"`
 }
 
 func (s *Server) handleLocalModels(w http.ResponseWriter, r *http.Request) {
@@ -160,6 +161,7 @@ func (s *Server) localModelsStatus() localModelsStatus {
 
 		PiperInstalled:       fileOrPathExists(lm.PiperPath),
 		PiperDownload:        s.dl.Status("piper"),
+		PiperVoices:          providers.InstalledPiperVoices(lm.ModelsDir),
 	}
 
 	if eng := s.reg.LocalEngine(); eng != nil {
@@ -238,6 +240,71 @@ func (s *Server) handlePiperDownload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	st, err := s.dl.StartPiper(destDir)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, http.StatusOK, st)
+}
+
+// piperVoiceInfo is one row of GET /admin/localmodels/piper/voices.
+type piperVoiceInfo struct {
+	providers.PiperVoice
+	Installed bool                    `json:"installed"`
+	Download  providers.DownloadState `json:"download"`
+}
+
+// handlePiperVoices lists every downloadable Piper voice (language/region
+// index from the official catalog) with install and download state.
+func (s *Server) handlePiperVoices(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	voices, err := providers.FetchPiperVoices(r.Context())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	installed := map[string]bool{}
+	for _, v := range providers.InstalledPiperVoices(s.reg.LocalModelsDir()) {
+		installed[v] = true
+	}
+	out := make([]piperVoiceInfo, 0, len(voices))
+	for _, v := range voices {
+		out = append(out, piperVoiceInfo{
+			PiperVoice: v,
+			Installed:  installed[v.Key],
+			Download:   s.dl.Status(v.VoiceCatalogID()),
+		})
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// handlePiperVoiceDownload starts downloading one voice into the models dir.
+func (s *Server) handlePiperVoiceDownload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var body struct {
+		Key string `json:"key"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	voice, err := providers.PiperVoiceByKey(r.Context(), body.Key)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	dir := s.reg.LocalModelsDir()
+	if dir == "" {
+		http.Error(w, "no models directory configured: enable local models first", http.StatusBadRequest)
+		return
+	}
+	st, err := s.dl.Start(voice.CatalogEntry(), dir)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
