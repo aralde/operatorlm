@@ -10,9 +10,10 @@ import (
 type Registry struct {
 	cfg *config.Config
 
-	mu     sync.RWMutex
-	byKey  map[string]Provider
-	engine *LocalEngine // the single built-in llama.cpp engine
+	mu      sync.RWMutex
+	byKey   map[string]Provider
+	builtin map[string]bool // names synthesized at runtime, not from [[providers]]
+	engine  *LocalEngine    // the single built-in llama.cpp engine
 }
 
 func NewRegistry(cfg *config.Config) *Registry {
@@ -26,6 +27,7 @@ func (r *Registry) Reload() {
 	defer r.mu.Unlock()
 
 	newByKey := make(map[string]Provider)
+	newBuiltin := make(map[string]bool)
 
 	for _, p := range r.cfg.Snapshot() {
 		if p.Disabled {
@@ -47,6 +49,7 @@ func (r *Registry) Reload() {
 	if lm.Enabled {
 		r.engine.Refresh()
 		newByKey[localProviderName] = newLocalProvider(lm, r.engine)
+		newBuiltin[localProviderName] = true
 	} else {
 		r.engine.StopChat()
 	}
@@ -70,6 +73,7 @@ func (r *Registry) Reload() {
 			// client didn't send its own language field.
 			defaultFormFields: map[string]string{"language": "auto"},
 		}
+		newBuiltin["whisper-local"] = true
 	}
 	if lm.PiperEnabled {
 		newByKey["piper-local"] = newOpenAILike(config.Provider{
@@ -78,9 +82,20 @@ func (r *Registry) Reload() {
 			BaseURL: "http://127.0.0.1:" + strconv.Itoa(lm.PiperPort) + "/v1",
 			Models:  []string{"tts-1"},
 		}, nil)
+		newBuiltin["piper-local"] = true
 	}
 
 	r.byKey = newByKey
+	r.builtin = newBuiltin
+}
+
+// IsBuiltin reports whether name is a runtime-synthesized provider (the local
+// engine or an audio sidecar) rather than a [[providers]] entry. Builtins are
+// configured in the Local models tab, not through the provider CRUD.
+func (r *Registry) IsBuiltin(name string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.builtin[name]
 }
 
 // LocalEngine returns the built-in engine (never nil after NewRegistry).
