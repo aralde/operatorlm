@@ -34,10 +34,13 @@ func (e CatalogEntry) TotalSize() int64 {
 }
 
 const (
-	hfQwenVL  = "https://huggingface.co/ggml-org/Qwen2.5-VL-3B-Instruct-GGUF/resolve/main"
-	hfGemma   = "https://huggingface.co/ggml-org/gemma-3-4b-it-GGUF/resolve/main"
-	hfQwen    = "https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/main"
-	hfLlama32 = "https://huggingface.co/bartowski/Llama-3.2-3B-Instruct-GGUF/resolve/main"
+	hfQwenVL       = "https://huggingface.co/ggml-org/Qwen2.5-VL-3B-Instruct-GGUF/resolve/main"
+	hfGemma        = "https://huggingface.co/ggml-org/gemma-3-4b-it-GGUF/resolve/main"
+	hfQwen         = "https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/main"
+	hfLlama32      = "https://huggingface.co/bartowski/Llama-3.2-3B-Instruct-GGUF/resolve/main"
+	hfSmallThinker = "https://huggingface.co/bartowski/SmallThinker-3B-Preview-GGUF/resolve/main"
+	hfPhi4Mini     = "https://huggingface.co/bartowski/microsoft_Phi-4-mini-instruct-GGUF/resolve/main"
+	hfGemma4E2B    = "https://huggingface.co/bartowski/google_gemma-4-E2B-it-GGUF/resolve/main"
 )
 
 // catalog is the curated set of recommended models. Tuned for a ~4 GB VRAM GPU
@@ -96,6 +99,49 @@ var catalog = []CatalogEntry{
 		ContextSize: 8192,
 		Files: []CatalogFile{
 			{URL: hfLlama32 + "/Llama-3.2-3B-Instruct-Q4_K_M.gguf", Filename: "Llama-3.2-3B-Instruct-Q4_K_M.gguf", Role: "model", Size: 2019 << 20},
+		},
+	},
+	{
+		ID:          "smallthinker-3b",
+		Name:        "SmallThinker 3B Preview",
+		Description: "Qwen2.5-3B fine-tuned for step-by-step reasoning (o1-style). Strongest small reasoner; pairs well with no_thinking off.",
+		Tags:        []string{"chat", "reasoning", "text"},
+		Backend:     "gpu",
+		ModelID:     "SmallThinker-3B-Preview-Q4_K_M",
+		NGPULayers:  99,
+		ContextSize: 8192,
+		Files: []CatalogFile{
+			{URL: hfSmallThinker + "/SmallThinker-3B-Preview-Q4_K_M.gguf", Filename: "SmallThinker-3B-Preview-Q4_K_M.gguf", Role: "model", Size: 2007 << 20},
+		},
+	},
+	{
+		ID:          "phi-4-mini",
+		Name:        "Phi-4 Mini 3.8B Instruct",
+		Description: "Microsoft's small model: excellent math / reasoning / code for its size, solid function calling. Text-only.",
+		Tags:        []string{"chat", "agentic", "text"},
+		Backend:     "gpu",
+		ModelID:     "microsoft_Phi-4-mini-instruct-Q4_K_M",
+		NGPULayers:  99,
+		ContextSize: 8192,
+		Files: []CatalogFile{
+			{URL: hfPhi4Mini + "/microsoft_Phi-4-mini-instruct-Q4_K_M.gguf", Filename: "microsoft_Phi-4-mini-instruct-Q4_K_M.gguf", Role: "model", Size: 2376 << 20},
+		},
+	},
+	{
+		// E-series Gemmas crash llama.cpp when the graph is split between
+		// CPU and GPU (see the engine's CPU retry), and this file plus KV
+		// cache exceeds a 4 GB card — default to CPU, where the E2B's ~2B
+		// effective footprint runs comfortably.
+		ID:          "gemma-4-e2b-cpu",
+		Name:        "Gemma 4 E2B Instruct (CPU)",
+		Description: "Gemma 4 efficient variant: ~2B effective footprint at load time, strong multilingual chat. Best quality without a GPU.",
+		Tags:        []string{"chat", "text"},
+		Backend:     "cpu",
+		ModelID:     "google_gemma-4-E2B-it-Q4_K_M",
+		NGPULayers:  0,
+		ContextSize: 8192,
+		Files: []CatalogFile{
+			{URL: hfGemma4E2B + "/google_gemma-4-E2B-it-Q4_K_M.gguf", Filename: "google_gemma-4-E2B-it-Q4_K_M.gguf", Role: "model", Size: 3302 << 20},
 		},
 	},
 	{
