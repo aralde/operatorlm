@@ -962,8 +962,83 @@ function exampleCard(model, badgeText, badgeClass) {
   return card;
 }
 
-// ── Local audio examples (tts-1 / whisper-1) ────────────────
+// ── Local audio examples (tts-1 / whisper-1 / realtime) ─────
 let lastTtsBlob = null; // last TTS output, reusable as whisper input
+
+// PcmStreamPlayer schedules raw 16-bit LE mono PCM chunks for gapless playback
+// as they arrive over the network. Each chunk becomes an AudioBuffer that
+// starts exactly where the previous one ends, so streamed audio plays while
+// the rest is still being synthesized. Construct it synchronously in the
+// click handler (autoplay policy: the AudioContext needs a user gesture).
+class PcmStreamPlayer {
+  constructor(sampleRate = 22050) {
+    this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+    this.ctx.resume?.();
+    this.sampleRate = sampleRate;
+    this.nextTime = 0;
+    this.carry = null; // odd trailing byte awaiting its int16 partner
+  }
+  setSampleRate(sr) { if (sr > 0) this.sampleRate = sr; }
+  push(bytes) {
+    let data = bytes;
+    if (this.carry) {
+      const merged = new Uint8Array(this.carry.length + bytes.length);
+      merged.set(this.carry); merged.set(bytes, this.carry.length);
+      data = merged; this.carry = null;
+    }
+    const usable = data.length - (data.length % 2);
+    if (data.length % 2) this.carry = data.slice(usable);
+    if (!usable) return;
+    const aligned = data.slice(0, usable); // fresh buffer → even byteOffset
+    const int16 = new Int16Array(aligned.buffer, 0, usable / 2);
+    const f32 = new Float32Array(int16.length);
+    for (let i = 0; i < int16.length; i++) f32[i] = int16[i] / 32768;
+    const buf = this.ctx.createBuffer(1, f32.length, this.sampleRate);
+    buf.copyToChannel(f32, 0);
+    const src = this.ctx.createBufferSource();
+    src.buffer = buf;
+    src.connect(this.ctx.destination);
+    const now = this.ctx.currentTime;
+    if (this.nextTime < now + 0.05) this.nextTime = now + 0.05;
+    src.start(this.nextTime);
+    this.nextTime += buf.duration;
+  }
+  // close() releases the AudioContext once everything scheduled has played.
+  close() {
+    const ctx = this.ctx;
+    const waitMs = Math.max(0, (this.nextTime - ctx.currentTime) * 1000) + 250;
+    setTimeout(() => ctx.close().catch(() => {}), waitMs);
+  }
+}
+
+function concatChunks(chunks) {
+  const total = chunks.reduce((n, c) => n + c.length, 0);
+  const out = new Uint8Array(total);
+  let off = 0;
+  for (const c of chunks) { out.set(c, off); off += c.length; }
+  return out;
+}
+
+// pcmToWavBlob wraps raw PCM in a WAV header so the inline <audio> replay and
+// the whisper-1 reuse path keep working after a streamed (headerless) run.
+function pcmToWavBlob(pcm, sampleRate) {
+  const header = new ArrayBuffer(44);
+  const v = new DataView(header);
+  const writeStr = (off, s) => { for (let i = 0; i < s.length; i++) v.setUint8(off + i, s.charCodeAt(i)); };
+  writeStr(0, 'RIFF'); v.setUint32(4, 36 + pcm.length, true); writeStr(8, 'WAVE');
+  writeStr(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true);
+  v.setUint16(22, 1, true); v.setUint32(24, sampleRate, true);
+  v.setUint32(28, sampleRate * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+  writeStr(36, 'data'); v.setUint32(40, pcm.length, true);
+  return new Blob([header, pcm], { type: 'audio/wav' });
+}
+
+function b64ToBytes(b64) {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
 
 async function copyText(text, btn) {
   try {
@@ -993,6 +1068,9 @@ function ttsExampleCard() {
     </div>
     <pre class="curl-pre"></pre>
     <select class="tts-voice" style="width:100%; margin:.4rem 0;" title="Voice (installed Piper voices; download more in Local models)">${voiceOptions}</select>
+    <label class="small" style="display:flex; align-items:center; gap:.35rem; margin:.2rem 0;" title="response_format=pcm: playback starts on the first synthesized chunk instead of waiting for the whole WAV">
+      <input type="checkbox" class="tts-stream" /> Stream (play while synthesizing)
+    </label>
     <audio class="tts-audio" controls style="width:100%; margin:.4rem 0; display:none;"></audio>
     <div class="example-actions">
       <button type="button" class="btn-secondary copy-btn">Copy</button>
@@ -1001,22 +1079,94 @@ function ttsExampleCard() {
   const buildTtsPayload = () => {
     const p = { model: 'tts-1', input: tryPromptIn.value || 'Hola, esto es una prueba.' };
     p.voice = $('.tts-voice', card).value || 'default';
+    if ($('.tts-stream', card).checked) p.response_format = 'pcm';
     return p;
   };
   const buildTtsCurl = () => {
-    const body = JSON.stringify(buildTtsPayload());
-    return `curl http://${location.host}/v1/audio/speech \\
+    const payload = buildTtsPayload();
+    const body = JSON.stringify(payload);
+    const streaming = payload.response_format === 'pcm';
+    return `curl${streaming ? ' -N' : ''} http://${location.host}/v1/audio/speech \\
   -H "Content-Type: application/json" \\
   -d '${body.replace(/'/g, "'\\''")}' \\
-  -o speech.wav`;
+  -o speech.${streaming ? 'pcm' : 'wav'}`;
   };
   const updateCurl = () => $('.curl-pre', card).textContent = buildTtsCurl();
   updateCurl();
   tryPromptIn.addEventListener('input', updateCurl);
   $('.tts-voice', card).addEventListener('change', updateCurl);
+  $('.tts-stream', card).addEventListener('change', updateCurl);
   $('.copy-btn', card).addEventListener('click', e => copyText(buildTtsCurl(), e.currentTarget));
-  $('.run-btn',  card).addEventListener('click', () => runTTS(card, buildTtsCurl(), buildTtsPayload()));
+  $('.run-btn',  card).addEventListener('click', () => {
+    const payload = buildTtsPayload();
+    if (payload.response_format === 'pcm') runTTSStream(card, buildTtsCurl(), payload);
+    else runTTS(card, buildTtsCurl(), payload);
+  });
   return card;
+}
+
+// runTTSStream plays the response while it downloads (PCM + PcmStreamPlayer)
+// and reports first-audio latency vs total, which is the whole point of the
+// streaming mode. The full PCM is still collected to rebuild a WAV for the
+// inline replay player and the whisper-1 reuse path.
+async function runTTSStream(card, curl, payload) {
+  const model = 'tts-1';
+  setRunningMeta(model, true);
+  $$('.result-tab').forEach(b => b.classList.toggle('active', b.dataset.rt === 'content'));
+  const player = new PcmStreamPlayer(); // sync: needs the click's user gesture
+  const t0 = performance.now();
+  try {
+    const res = await fetch('/v1/audio/speech', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      player.close();
+      const err = await res.text();
+      setDoneMeta(model, true, res.status, Math.round(performance.now() - t0));
+      lastResult = { content: err, raw: err, curl };
+      renderResultBody('content');
+      return;
+    }
+    const sr = parseInt(res.headers.get('X-Sample-Rate') || '22050', 10);
+    player.setSampleRate(sr);
+    let firstMs = 0;
+    const chunks = [];
+    const reader = res.body.getReader();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!firstMs) firstMs = Math.round(performance.now() - t0);
+      chunks.push(value);
+      player.push(value);
+    }
+    const totalMs = Math.round(performance.now() - t0);
+    player.close();
+    setDoneMeta(model, true, res.status, totalMs);
+    const pcm = concatChunks(chunks);
+    lastTtsBlob = pcmToWavBlob(pcm, sr);
+    const audio = $('.tts-audio', card);
+    if (audio.src) URL.revokeObjectURL(audio.src);
+    audio.src = URL.createObjectURL(lastTtsBlob);
+    audio.style.display = 'block';
+    const content = `Streamed ${(pcm.length / 1024).toFixed(0)} KiB PCM @ ${sr} Hz.\n` +
+      `First audio: ${firstMs} ms · download complete: ${totalMs} ms.\n` +
+      `Playback started while synthesis was still running; the inline player has the full take. ` +
+      `whisper-1 will reuse it as input when no file is chosen.`;
+    lastResult = { content, raw: `(binary audio, ${pcm.length} bytes PCM)`, curl };
+    renderResultBody('content');
+  } catch (e) {
+    player.close();
+    const ms = Math.round(performance.now() - t0);
+    resultMeta.innerHTML = `
+      <span class="pill err">network</span>
+      <code class="small">${model}</code>
+      <span class="muted small">${ms} ms</span>
+    `;
+    lastResult = { content: e.message, raw: e.message, curl };
+    renderResultBody('content');
+  }
 }
 
 async function runTTS(card, curl, payload) {
@@ -1056,6 +1206,147 @@ async function runTTS(card, curl, payload) {
       <span class="muted small">${ms} ms</span>
     `;
     lastResult = { content: e.message, raw: e.message, curl };
+    renderResultBody('content');
+  }
+}
+
+// realtimeExampleCard exercises /v1/audio/speech/realtime: one SSE stream
+// with the model's text deltas and the spoken audio, sentence by sentence.
+function realtimeExampleCard() {
+  const card = document.createElement('div');
+  card.className = 'example';
+  const lmc = localModelsConfig || {};
+
+  // Any routed chat model works for the text leg; list local models first
+  // (they pair naturally with the local TTS), then aliases, then slugs.
+  const modelOpts = [];
+  if (lmc.enabled) {
+    const prefix = lmc.prefix || 'local/';
+    for (const m of (lmc.models || [])) modelOpts.push(prefix + m.id);
+  }
+  for (const a of aliases) modelOpts.push(a.name);
+  for (const p of providers) for (const m of (p.models || [])) modelOpts.push((p.prefix || '') + m);
+
+  const defVoice = (lmc.piper_model || '').replace(/\.onnx$/i, '');
+  const voices = lmc.piper_voices || [];
+  const voiceOptions =
+    `<option value="">default${defVoice ? ` (${defVoice})` : ''}</option>` +
+    voices.filter(v => v !== defVoice)
+          .map(v => `<option value="${v}">${v}</option>`).join('');
+
+  card.innerHTML = `
+    <div class="example-head">
+      <div class="example-name">realtime</div>
+      <div class="example-meta"><span class="tag">chat → speech · SSE</span></div>
+    </div>
+    <pre class="curl-pre"></pre>
+    <select class="rt-model" style="width:100%; margin:.4rem 0;" title="Chat model for the text leg (any routed model)">
+      ${modelOpts.map(m => `<option value="${m}">${m}</option>`).join('')}
+    </select>
+    <select class="rt-voice" style="width:100%; margin:.4rem 0;" title="Piper voice for the audio leg">${voiceOptions}</select>
+    <div class="example-actions">
+      <button type="button" class="btn-secondary copy-btn">Copy</button>
+      <button type="button" class="btn-primary run-btn"${modelOpts.length ? '' : ' disabled title="No chat models available"'}>Run</button>
+    </div>`;
+  const buildPayload = () => ({
+    model: $('.rt-model', card).value,
+    voice: $('.rt-voice', card).value || 'default',
+    input: tryPromptIn.value || 'Contame en dos oraciones qué es un proxy.',
+  });
+  const buildCurl = () => {
+    const body = JSON.stringify(buildPayload());
+    return `curl -N http://${location.host}/v1/audio/speech/realtime \\
+  -H "Content-Type: application/json" \\
+  -d '${body.replace(/'/g, "'\\''")}'`;
+  };
+  const updateCurl = () => $('.curl-pre', card).textContent = buildCurl();
+  updateCurl();
+  tryPromptIn.addEventListener('input', updateCurl);
+  $('.rt-model', card).addEventListener('change', updateCurl);
+  $('.rt-voice', card).addEventListener('change', updateCurl);
+  $('.copy-btn', card).addEventListener('click', e => copyText(buildCurl(), e.currentTarget));
+  $('.run-btn',  card).addEventListener('click', () => runRealtime(buildCurl(), buildPayload()));
+  return card;
+}
+
+async function runRealtime(curl, payload) {
+  setRunningMeta(payload.model, true);
+  $$('.result-tab').forEach(b => b.classList.toggle('active', b.dataset.rt === 'content'));
+  const player = new PcmStreamPlayer(); // sync: needs the click's user gesture
+  const t0 = performance.now();
+  let text = '', errors = '', firstTextMs = 0, firstAudioMs = 0, audioBytes = 0;
+  const rawEvents = [];
+  const liveRender = (footer = '') => {
+    lastResult = { content: text + (errors ? `\n\n${errors}` : '') + (footer ? `\n\n${footer}` : ''), raw: rawEvents.join('\n'), curl };
+    renderResultBody('content');
+  };
+  try {
+    const res = await fetch('/v1/audio/speech/realtime', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok || !res.headers.get('Content-Type')?.includes('text/event-stream')) {
+      player.close();
+      const err = await res.text();
+      setDoneMeta(payload.model, true, res.status, Math.round(performance.now() - t0));
+      lastResult = { content: err, raw: err, curl };
+      renderResultBody('content');
+      return;
+    }
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let idx;
+      while ((idx = buf.indexOf('\n\n')) >= 0) {
+        const frame = buf.slice(0, idx);
+        buf = buf.slice(idx + 2);
+        for (const line of frame.split('\n')) {
+          if (!line.startsWith('data: ')) continue;
+          let ev;
+          try { ev = JSON.parse(line.slice(6)); } catch (_) { continue; }
+          if (ev.type !== 'speech.audio.delta') rawEvents.push(line.slice(6));
+          switch (ev.type) {
+            case 'speech.audio.start':
+              player.setSampleRate(ev.sample_rate || 22050);
+              break;
+            case 'response.text.delta':
+              if (!firstTextMs) firstTextMs = Math.round(performance.now() - t0);
+              text += ev.delta;
+              liveRender();
+              break;
+            case 'speech.audio.delta': {
+              if (!firstAudioMs) firstAudioMs = Math.round(performance.now() - t0);
+              const bytes = b64ToBytes(ev.audio);
+              audioBytes += bytes.length;
+              player.push(bytes);
+              break;
+            }
+            case 'error':
+              errors += `${errors ? '\n' : ''}[error] ${ev.message}`;
+              liveRender();
+              break;
+          }
+        }
+      }
+    }
+    const totalMs = Math.round(performance.now() - t0);
+    player.close();
+    setDoneMeta(payload.model, true, 200, totalMs);
+    liveRender(`⏱ first text ${firstTextMs} ms · first audio ${firstAudioMs} ms · done ${totalMs} ms · ${(audioBytes / 1024).toFixed(0)} KiB audio`);
+  } catch (e) {
+    player.close();
+    const ms = Math.round(performance.now() - t0);
+    resultMeta.innerHTML = `
+      <span class="pill err">network</span>
+      <code class="small">${payload.model}</code>
+      <span class="muted small">${ms} ms</span>
+    `;
+    lastResult = { content: (text ? text + '\n\n' : '') + e.message, raw: e.message, curl };
     renderResultBody('content');
   }
 }
@@ -1149,12 +1440,14 @@ function renderTryIt() {
   const audioHost = document.getElementById('tryit-audio');
   if (audioCard && audioHost) {
     const lmc = localModelsConfig || {};
-    const wantKey = `${!!lmc.piper_enabled}|${!!lmc.whisper_enabled}|${lmc.piper_model || ''}|${(lmc.piper_voices || []).join(',')}`;
+    const modelKey = (lmc.models || []).map(m => m.id).join(',');
+    const wantKey = `${!!lmc.piper_enabled}|${!!lmc.whisper_enabled}|${lmc.piper_model || ''}|${(lmc.piper_voices || []).join(',')}|${modelKey}|${providers.length}|${aliases.length}`;
     if (audioHost.dataset.built !== wantKey) {
       audioHost.dataset.built = wantKey;
       audioHost.innerHTML = '';
       let audioCount = 0;
       if (lmc.piper_enabled)   { audioHost.appendChild(ttsExampleCard()); audioCount++; }
+      if (lmc.piper_enabled)   { audioHost.appendChild(realtimeExampleCard()); audioCount++; }
       if (lmc.whisper_enabled) { audioHost.appendChild(sttExampleCard()); audioCount++; }
       document.getElementById('tryit-audio-count').textContent = audioCount;
       audioCard.hidden = audioCount === 0;
