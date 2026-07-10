@@ -2200,24 +2200,34 @@ function render() {
     const tr = document.createElement('tr');
     if (p.disabled) tr.classList.add('row-disabled');
     const disabledTag = p.disabled ? ' <span class="tag tag-disabled">Disabled</span>' : '';
+    const builtinTag  = p.builtin ? ' <span class="tag">built-in</span>' : '';
     const reloginBtn = p.type === 'chatgpt-codex'
       ? `<button class="btn-ghost" data-relogin="${p.name}">Re-login</button>`
       : '';
-    tr.innerHTML = `
-      <td><strong>${p.name}</strong>${disabledTag}</td>
-      <td><span class="tag">${p.type}</span></td>
-      <td><code>${p.prefix || ''}</code></td>
-      <td class="small muted">${p.type === 'antigravity' ? (p.project_id ? (discoveredProjects.find(x => x.id === p.project_id)?.path || p.project_id) : 'Auto-detect') : p.base_url}</td>
-      <td>${keys}</td>
-      <td>${tags}</td>
-      <td>
-        <button class="btn-ghost" data-edit="${p.name}">Edit</button>
+    // Built-in providers (local engine, audio sidecars) are synthesized from
+    // [local_models] — there is nothing to edit, disable, or delete here.
+    const actions = p.builtin
+      ? `<button class="btn-ghost" data-goto-localmodels="1" title="This provider is managed by the built-in local engine">Configure in Local models</button>`
+      : `<button class="btn-ghost" data-edit="${p.name}">Edit</button>
         ${reloginBtn}
         <button class="btn-ghost" data-toggle-prov="${p.name}" data-disabled="${p.disabled ? '1' : '0'}">${p.disabled ? 'Enable' : 'Disable'}</button>
-        <button class="danger" data-name="${p.name}">Delete</button>
-      </td>`;
+        <button class="danger" data-name="${p.name}">Delete</button>`;
+    tr.innerHTML = `
+      <td><strong>${p.name}</strong>${builtinTag}${disabledTag}</td>
+      <td><span class="tag">${p.type}</span></td>
+      <td><code>${p.prefix || ''}</code></td>
+      <td class="small muted">${p.builtin ? 'managed by the built-in engine' : (p.type === 'antigravity' ? (p.project_id ? (discoveredProjects.find(x => x.id === p.project_id)?.path || p.project_id) : 'Auto-detect') : p.base_url)}</td>
+      <td>${p.builtin ? '<span class="muted small">—</span>' : keys}</td>
+      <td>${tags}</td>
+      <td>${actions}</td>`;
     ptb.appendChild(tr);
   }
+  ptb.querySelectorAll('button[data-goto-localmodels]').forEach(btn => {
+    btn.onclick = () => {
+      activate('localmodels');
+      if (typeof loadLocalModels === 'function') loadLocalModels();
+    };
+  });
   $('#providers-empty').hidden = providers.length > 0;
   $('#providers-count').textContent = providers.length;
   ptb.querySelectorAll('button[data-toggle-prov]').forEach(btn => {
@@ -2267,9 +2277,10 @@ function render() {
     };
   });
 
-  // Key form provider dropdown ------------------------------
+  // Key form provider dropdown (builtins take no API keys) ---
   keyProviderSel.innerHTML = '';
   for (const p of providers) {
+    if (p.builtin) continue;
     const o = document.createElement('option');
     o.value = p.name; o.textContent = p.name;
     keyProviderSel.appendChild(o);
@@ -2367,6 +2378,7 @@ async function loadAll() {
   ]);
   providers = (pl || []).map(p => ({
     name:        p.name,
+    builtin:     !!p.builtin,
     type:        p.type,
     prefix:      p.prefix,
     base_url:    p.base_url,

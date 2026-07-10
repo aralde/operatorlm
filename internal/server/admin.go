@@ -21,13 +21,23 @@ type providerPayload struct {
 func (s *Server) handleProviders(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		var out []config.Provider
+		type providerInfo struct {
+			config.Provider
+			// Builtin marks runtime-synthesized providers (local engine,
+			// audio sidecars): shown for visibility but not editable — the
+			// UI points at the Local models tab instead.
+			Builtin bool `json:"builtin,omitempty"`
+		}
+		var out []providerInfo
 		for _, p := range s.reg.All() {
-			out = append(out, config.Provider{
-				Name:   p.Name(),
-				Type:   p.Type(),
-				Prefix: p.Prefix(),
-				Models: p.Models(),
+			out = append(out, providerInfo{
+				Provider: config.Provider{
+					Name:   p.Name(),
+					Type:   p.Type(),
+					Prefix: p.Prefix(),
+					Models: p.Models(),
+				},
+				Builtin: s.reg.IsBuiltin(p.Name()),
 			})
 		}
 		writeJSON(w, http.StatusOK, out)
@@ -41,8 +51,12 @@ func (s *Server) handleProviders(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "name and type required", http.StatusBadRequest)
 			return
 		}
-		if p.Type == "llama-server" {
-			http.Error(w, "the llama-server provider type was replaced by the built-in engine: configure it in the Local models tab", http.StatusBadRequest)
+		if p.Type == "llama-server" || p.Type == "llamacpp" {
+			http.Error(w, "the "+p.Type+" provider type is managed by the built-in engine: configure it in the Local models tab", http.StatusBadRequest)
+			return
+		}
+		if s.reg.IsBuiltin(p.Name) {
+			http.Error(w, "\""+p.Name+"\" is a built-in provider: configure it in the Local models tab", http.StatusBadRequest)
 			return
 		}
 		applyDefaults(&p.Provider)
@@ -552,6 +566,12 @@ func (s *Server) handleProbe(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	// Built-in providers have no [[providers]] entry or upstream to probe;
+	// answer with what the runtime already knows.
+	if models, ok := s.builtinProbe(p.Provider); ok {
+		writeJSON(w, http.StatusOK, map[string]any{"models": models})
+		return
+	}
 	tmp := config.Provider{Type: p.Type, BaseURL: p.BaseURL, ApiVersion: p.ApiVersion, ModelsDir: p.ModelsDir}
 	apiKey := p.APIKey
 	if p.Provider != "" {
@@ -607,6 +627,28 @@ func (s *Server) handleProbe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"models": models})
+}
+
+// builtinProbe answers "Fetch models" for runtime-synthesized providers: the
+// local engine reports the GGUFs discovered on disk (after a rescan, so a
+// just-downloaded model shows up), the audio sidecars their fixed model names.
+func (s *Server) builtinProbe(name string) ([]string, bool) {
+	if name == "" || !s.reg.IsBuiltin(name) {
+		return nil, false
+	}
+	switch name {
+	case "local":
+		s.reg.RefreshLocalEngines()
+		if eng := s.reg.LocalEngine(); eng != nil {
+			return eng.ModelIDs(), true
+		}
+		return []string{}, true
+	case "whisper-local":
+		return []string{"whisper-1"}, true
+	case "piper-local":
+		return []string{"tts-1"}, true
+	}
+	return nil, false
 }
 
 func (s *Server) handleAntigravityProjects(w http.ResponseWriter, r *http.Request) {
