@@ -10,7 +10,7 @@
 [![Keys: OS Keyring](https://img.shields.io/badge/keys-OS%20keyring-informational)](#configuración--secretos)
 
 > **Un proxy local, compatible con OpenAI, con failover real, aliasing multi-cuenta y cero secretos en disco.**
-> Un único binario se sitúa entre tu IDE/SDK y cada proveedor LLM que uses — OpenAI, OpenRouter, Groq, Google Gemini, Azure OpenAI, e incluso tu suscripción a **ChatGPT Plus/Pro**.
+> Un único binario se sitúa entre tu IDE/SDK y cada proveedor LLM que uses — OpenAI, OpenRouter, Groq, Google Gemini, Azure OpenAI, Anthropic, e incluso tu suscripción a **ChatGPT Plus/Pro**. Además corre modelos GGUF **totalmente locales**, embeddings y voz (STT/TTS) sin nube alguna — un reemplazo de Ollama *y* un router a la nube en el mismo binario.
 
 ![OperatorLM Banner](images/banner.png)
 
@@ -66,7 +66,10 @@ Cualquier cliente compatible con OpenAI funciona — pon como base URL `http://1
 - [Cómo funciona](#cómo-funciona)
 - [La feature estrella: aliases multi-cuenta](#-la-feature-estrella-aliases-multi-cuenta)
 - [Failover que de verdad hace failover](#%EF%B8%8F-failover-que-de-verdad-hace-failover)
+- [Corré modelos localmente (chat, visión, embeddings, voz)](#-corré-modelos-localmente-chat-visión-embeddings-voz)
+- [API compatible con Anthropic](#-api-compatible-con-anthropic)
 - [ChatGPT Plus/Pro como backend (experimental)](#-chatgpt-pluspro-como-backend-experimental)
+- [Mantenerlo actualizado](#-mantenerlo-actualizado)
 - [Cómo se compara OperatorLM](#cómo-se-compara-operatorlm)
 - [Build from source](#build-from-source)
 - [Endpoints soportados](#endpoints-soportados)
@@ -84,7 +87,12 @@ Cualquier cliente compatible con OpenAI funciona — pon como base URL `http://1
 - 🖥️ **Admin UI embebida en vivo** — Gestiona providers, keys, aliases, ajustes de reliability, y mira el audit log en streaming — todo desde `http://127.0.0.1:11434/admin/`. Cero instalación: está embebida con `go:embed` en el binario.
 - 🧪 **Audit log en JSONL** — Cada request: modelo, intento, URL upstream, status, duración. Los headers `Authorization` se redactan por defecto. Writer no bloqueante.
 - 🤖 **ChatGPT Plus/Pro como backend** — Logueas una vez vía OAuth (PKCE), y tu cuota de Plus/Pro queda enchufada en la misma API compatible con OpenAI que ya hablan tus herramientas. *(Experimental — lee el disclaimer abajo.)*
-- 🪶 **Un binario de ~11 MB, ~50 MB de RAM en idle** — Go nativo. Sin `node_modules`, sin Python, sin Docker. Arranca en milisegundos.
+- 🖥️ **Corre modelos localmente (llama.cpp integrado)** — Apúntalo a una carpeta de archivos `*.gguf` y OperatorLM spawnea `llama-server` bajo demanda, sin daemon aparte. Un **catálogo** con descargas de un clic trae modelos de chat, visión y embeddings ya curados. Un reemplazo de Ollama que *además* rutea a la nube.
+- 🧬 **Embeddings locales** — `/v1/embeddings` servido por un modelo GGUF local (Qwen3-Embedding, EmbeddingGemma) en un sidecar dedicado — ideal para RAG / búsqueda semántica offline. Los embeddings en la nube (OpenAI, Azure, Gemini) funcionan por el mismo endpoint.
+- 🎙️ **Voz local (STT + TTS)** — Transcribí con **Whisper** (`/v1/audio/transcriptions`), sintetizá con **Piper** (`/v1/audio/speech`), o hacé **chat-a-voz en tiempo real** por streaming (`/v1/audio/speech/realtime`). Catálogo de voces con descargas de un clic.
+- 🟣 **Compatible con Anthropic** — Un endpoint nativo `/v1/messages` más un provider `anthropic` con traducción bidireccional OpenAI↔Anthropic, así herramientas que hablan la API de Claude (como Claude Code) también pueden apuntarle a OperatorLM.
+- ⬆️ **Auto-update OTA** — "Check for updates" desde la bandeja baja el asset de la release que corresponde a tu OS, verifica su SHA-256, reemplaza el binario en su lugar y se re-ejecuta.
+- 🪶 **Un binario chico, poca RAM en idle** — Go nativo. Sin `node_modules`, sin Python, sin Docker. Arranca en milisegundos.
 - 🛰️ **Modo headless** — `OPERATORLM_NO_TRAY=1` para correrlo en una caja Linux sin sesión de escritorio.
 - 🪟 **Sin flash de consola en Windows** — compilado con `-H=windowsgui`. Es una tray app de verdad.
 
@@ -96,6 +104,8 @@ Cualquier cliente compatible con OpenAI funciona — pon como base URL `http://1
 - **Múltiples cuentas personales/de trabajo bajo un solo nombre de modelo** — mantén las keys `openai_personal`, `openai_work` y `openai_side` separadas en el OS keyring, expónlas a Cursor/Continue como un único modelo `gpt-4o`, y deja que el router las recorra ante un 429.
 - **ChatGPT Plus/Pro en vez de créditos de API** — loguea una vez vía OAuth y enruta tus llamadas a modelos Codex / GPT-5.x a través de tu cuota Plus/Pro existente, sin facturación de API *(experimental — lee el [disclaimer](#-chatgpt-pluspro-como-backend-experimental))*.
 - **Reemplazo drop-in de Ollama** — OperatorLM se ata a `127.0.0.1:11434`, así que cualquier herramienta que ya apunte a Ollama (Continue, Cline, Open WebUI, Zed, …) sigue funcionando sin cambios pero ahora alcanza OpenAI / OpenRouter / Gemini / Azure / Bedrock / etc.
+- **Totalmente offline / air-gapped** — corré modelos GGUF locales para chat, visión, embeddings y voz sin ningún provider de nube configurado; el mismo binario después se reparte a la nube apenas agregás una key.
+- **RAG / búsqueda semántica local** — serví embeddings desde un modelo local (Qwen3-Embedding / EmbeddingGemma) por `/v1/embeddings`, manteniendo tus documentos en la máquina.
 - **Tráfico LLM auditable en una máquina de dev o una estación compartida** — cada request cae en JSONL redactado, las keys viven en el OS keyring (nunca en disco), y la admin UI es solo loopback con validación de host-header y una API key local opcional.
 - **Gateway self-hosted en modo headless** — corre en una VM Linux / NAS / home server con `OPERATORLM_NO_TRAY=1`, alcanza `127.0.0.1:11434` por WireGuard o Tailscale desde tu laptop, y centraliza tus keys y audit log en un solo lugar.
 
@@ -204,6 +214,43 @@ Todo esto se afina en vivo desde la pestaña **Reliability** del admin UI — si
 
 ---
 
+## 🖥️ Corré modelos localmente (chat, visión, embeddings, voz)
+
+OperatorLM trae un **motor llama.cpp integrado** — sin daemon de Ollama aparte. Apuntalo a una carpeta de archivos `*.gguf` (en la pestaña **Local models** de la admin UI) y expone cada uno como `local/<model>`, spawneando `llama-server` bajo demanda e intercambiando modelos automáticamente. Todo corre en `127.0.0.1`, offline.
+
+| Capacidad             | Endpoint                          | Motor         | Notas                                                           |
+| --------------------- | --------------------------------- | ------------- | -------------------------------------------------------------- |
+| Chat local            | `/v1/chat/completions`            | llama.cpp     | Cualquier GGUF; carga on-demand, swap automático, GPU (`-ngl`) |
+| Visión local          | `/v1/chat/completions`            | llama.cpp     | Modelos multimodales con projector `mmproj` (entradas de imagen)|
+| Embeddings locales    | `/v1/embeddings`                  | llama.cpp     | Sidecar dedicado; convive con el modelo de chat                |
+| Speech-to-text        | `/v1/audio/transcriptions`, `/v1/audio/translations` | whisper.cpp | Transcripción/traducción con Whisper local         |
+| Text-to-speech        | `/v1/audio/speech`                | Piper         | Voces locales; sample rate por voz; streaming PCM              |
+| Chat→voz en realtime  | `/v1/audio/speech/realtime`       | llama.cpp + Piper | SSE: los tokens del modelo se sintetizan a audio mientras llegan |
+
+### Catálogo de modelos de un clic
+
+La pestaña **Local models** trae un catálogo curado — elegís un modelo y OperatorLM lo descarga (y su projector de visión o config de voz cuando aplica) a tu carpeta de modelos con defaults sensatos:
+
+- **Chat / visión / agentic**: Qwen2.5-VL 3B, Gemma 3 4B, Qwen2.5 3B, Llama 3.2 3B, Phi-4 Mini, SmallThinker 3B, Gemma 4 E2B.
+- **Embeddings**: **Qwen3-Embedding 0.6B** (lo mejor en multilingüe para su tamaño, 100+ idiomas) y **EmbeddingGemma 300M** (el modelo liviano on-device de Google). Ambos corren en CPU por defecto para no competir con el modelo de chat por VRAM.
+- **Voz**: Whisper Base (STT) y voces de Piper (TTS).
+
+> [!NOTE]
+> La inferencia local necesita el binario `llama-server` (llama.cpp). La admin UI tiene una descarga de un clic, o seteá `local_models.llama_server_path` a tu propio build. Whisper y Piper tienen sus propios botones de descarga.
+
+Como se ata al puerto de Ollama y habla la API de OpenAI, cualquier herramienta local-first (Continue, Cline, Zed, Open WebUI…) alcanza tus modelos locales sin cambios — mientras el *mismo* proxy puede hacer failover a la nube.
+
+---
+
+## 🟣 API compatible con Anthropic
+
+OperatorLM habla la **API Messages de Anthropic** de forma nativa en `POST /v1/messages`, y el provider `anthropic` traduce bidireccionalmente entre los esquemas de OpenAI y Anthropic. Dos consecuencias:
+
+- Herramientas hechas para la **API de Claude** (incluido **Claude Code**) pueden apuntar su base URL a OperatorLM y rutear por toda tu maquinaria de failover, aliasing y auditoría.
+- Podés mezclar ecosistemas libremente: llamá a un modelo de Anthropic por `/v1/chat/completions`, o a un modelo de OpenAI/local por `/v1/messages` — OperatorLM convierte según haga falta.
+
+---
+
 ## 🤖 ChatGPT Plus/Pro como backend (experimental)
 
 <details>
@@ -223,6 +270,12 @@ Si aceptas el riesgo: abre la admin UI, agrega un provider `chatgpt-codex`, haz 
 
 ---
 
+## ⬆️ Mantenerlo actualizado
+
+OperatorLM se auto-actualiza desde GitHub Releases. Elegí **Check for updates** en el menú de la bandeja (o `POST /admin/update/check`): busca la última release, baja el asset que corresponde a tu OS/arch más `checksums.txt`, **verifica el SHA-256**, reemplaza el binario en ejecución en su lugar y se re-ejecuta en la nueva versión. Los builds de dev (sin versión embebida) se saltean.
+
+---
+
 ## Cómo se compara OperatorLM
 
 | Feature                                  | OperatorLM | LiteLLM proxy | OmniRoute |
@@ -234,6 +287,9 @@ Si aceptas el riesgo: abre la admin UI, agrega un provider `chatgpt-codex`, haz 
 | Admin UI embebida                        | ✅         | ✅             | ✅        |
 | Tray app nativa                          | ✅         | ❌             | ❌        |
 | Audit log (JSONL, redactado)             | ✅         | ✅             | ✅        |
+| Inferencia local integrada (GGUF/llama.cpp) | ✅      | ❌             | ❌        |
+| Embeddings + voz locales (STT/TTS)       | ✅         | ❌             | ❌        |
+| Compatibilidad Anthropic `/v1/messages`  | ✅         | ✅             | parcial   |
 | ChatGPT Plus/Pro como backend            | ✅ (exp.)  | ❌             | ❌        |
 
 **Elige OperatorLM si** quieres un proxy desktop-first, de un único binario, que maneje failover y routing multi-cuenta como un servicio productivo — sin correr un servicio en Python ni mandar tus keys por la nube de alguien más.
@@ -276,10 +332,11 @@ Aparece un icono en la bandeja. La admin UI está en **<http://127.0.0.1:11434/a
 ### 3. Configurar (admin UI)
 
 1. Abre la admin UI.
-2. **Providers** → agrega un provider, elige su tipo (`openai`, `openrouter`, `groq`, `gemini`, `azure-openai`, `chatgpt-codex`, `custom`).
+2. **Providers** → agrega un provider, elige su tipo (`openai`, `openrouter`, `groq`, `gemini`, `azure-openai`, `anthropic`, `chatgpt-codex`, `custom`, …).
 3. **Keys** → pega tu API key. Se escribe en el OS keyring; el TOML solo guarda la referencia.
 4. **Aliases** *(opcional)* → arma failover multi-cuenta / multi-provider.
-5. **Try It** → dispara un request inline para verificar.
+5. **Local models** *(opcional)* → apuntá a una carpeta `*.gguf` (o descargá un modelo del catálogo con un clic) para correr chat / embeddings / voz localmente.
+6. **Try It** → dispara un request inline para verificar.
 
 ### 4. Úsalo desde cualquier cosa que hable OpenAI
 
@@ -323,16 +380,27 @@ Apunta Cursor / Continue / cualquier cliente compatible con OpenAI a `http://127
 
 ## Endpoints soportados
 
-| Endpoint                       | Estado                                  |
-| ------------------------------ | --------------------------------------- |
-| `POST /v1/chat/completions`    | ✅ Completo, con streaming               |
-| `POST /v1/images/generations`  | ✅ (sin streaming)                       |
-| `POST /v1/responses`           | ✅ (usado por `chatgpt-codex`)           |
-| `GET  /v1/models`              | ✅ Agregado de todos los providers configurados |
+| Endpoint                          | Estado                                        |
+| --------------------------------- | --------------------------------------------- |
+| `POST /v1/chat/completions`       | ✅ Completo, con streaming                     |
+| `POST /v1/messages`               | ✅ API Messages de Anthropic (OpenAI↔Anthropic)|
+| `POST /v1/responses`              | ✅ (usado por `chatgpt-codex`)                 |
+| `POST /v1/embeddings`             | ✅ Nube (OpenAI/Azure/Gemini) + GGUF local     |
+| `POST /v1/images/generations`     | ✅ (sin streaming)                             |
+| `POST /v1/audio/transcriptions`   | ✅ Whisper (local) + STT de providers          |
+| `POST /v1/audio/translations`     | ✅ Whisper (local)                             |
+| `POST /v1/audio/speech`           | ✅ Piper (local) + TTS de providers            |
+| `POST /v1/audio/speech/realtime`  | ✅ Chat→voz por streaming (SSE)                |
+| `GET  /v1/models`                 | ✅ Agregado de todos los providers configurados|
+| `GET  /health`                    | ✅ Chequeo de liveness público                 |
 
 ## Providers soportados
 
-`openai` · `openrouter` · `groq` · `gemini` · `azure-openai` · `mistral` · `nvidia-nim` · `bedrock` · `opencode-zen` · `chatgpt-codex` · `custom` (cualquier upstream compatible con OpenAI).
+**Nube / API:** `openai` · `openrouter` · `groq` · `gemini` · `azure-openai` · `anthropic` · `mistral` · `nvidia-nim` · `bedrock` · `opencode-zen` · `custom` (cualquier upstream compatible con OpenAI).
+
+**Local (sin nube):** motor `llama.cpp` integrado (chat + visión + embeddings), `whisper.cpp` (STT), `piper` (TTS).
+
+**Experimental:** `chatgpt-codex` (ChatGPT Plus/Pro vía OAuth) · `antigravity` (Gemini vía una sesión local de Antigravity).
 
 ---
 
@@ -375,10 +443,12 @@ El TOML referencia las keys por nombre (`operatorlm:openai_work`) — nunca el s
 ```
 internal/
   config/      # TOML + integración con OS keyring
-  providers/   # openai · openrouter · groq · gemini · azure · chatgpt-codex · custom
+  providers/   # providers de nube (openai · anthropic · gemini · azure · …) +
+               #   motor local integrado (llama.cpp · whisper · piper) + catálogo/downloader
   router/      # alias resolver · retry · circuit breaker · rate limiter
   server/      # handlers HTTP + admin UI embebida (web/)
   audit/       # audit logger JSONL no bloqueante
+  update/      # auto-update OTA desde GitHub Releases (verificado por SHA-256)
   tray/        # system tray multiplataforma
 main.go        # entrypoint
 ```

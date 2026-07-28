@@ -136,6 +136,16 @@ func (r *Router) Resolve(model string) ([]Attempt, error) {
 		}
 	}
 
+	// Built-in local embeddings sidecar: routes when the request model matches
+	// the configured embeddings model id (its .gguf stem), no alias needed.
+	if lm.EmbeddingsEnabled {
+		if embID := lm.EmbeddingsModelID(); embID != "" && model == embID {
+			if p, ok := r.builtinProvider("embed-local"); ok {
+				return []Attempt{{Provider: p, KeyName: "default", UpstreamModel: model}}, nil
+			}
+		}
+	}
+
 	return nil, fmt.Errorf("no provider or alias matches model %q", model)
 }
 
@@ -157,6 +167,10 @@ func (r *Router) builtinProvider(name string) (config.Provider, bool) {
 	case "piper-local":
 		if lm.PiperEnabled {
 			return config.Provider{Name: "piper-local", Type: "openai"}, true
+		}
+	case "embed-local":
+		if lm.EmbeddingsEnabled {
+			return config.Provider{Name: "embed-local", Type: "openai"}, true
 		}
 	}
 	return config.Provider{}, false

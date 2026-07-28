@@ -10,7 +10,7 @@
 [![Keys: OS Keyring](https://img.shields.io/badge/keys-OS%20keyring-informational)](#配置与密钥)
 
 > **一个本地的、兼容 OpenAI 的 proxy，支持真正的 failover、多账号 aliasing，并且磁盘上零密钥。**
-> 一个小巧的二进制文件坐在你的 IDE / SDK 和每一个 LLM provider 之间 —— OpenAI、OpenRouter、Groq、Google Gemini、Azure OpenAI，甚至你的 **ChatGPT Plus/Pro** 订阅。
+> 一个小巧的二进制文件坐在你的 IDE / SDK 和每一个 LLM provider 之间 —— OpenAI、OpenRouter、Groq、Google Gemini、Azure OpenAI、Anthropic，甚至你的 **ChatGPT Plus/Pro** 订阅。它还能运行**完全本地**的 GGUF 模型、embeddings 和语音(STT/TTS),完全不依赖云 —— 在同一个二进制里既是 Ollama 替代品,又是通往云端的 router。
 
 ![OperatorLM Banner](images/banner.png)
 
@@ -66,7 +66,10 @@
 - [工作原理](#工作原理)
 - [杀手级特性:多账号 aliases](#-杀手级特性多账号-aliases)
 - [真正能 failover 的 failover](#%EF%B8%8F-真正能-failover-的-failover)
+- [在本地运行模型(chat、视觉、embeddings、语音)](#-在本地运行模型chat视觉embeddings语音)
+- [兼容 Anthropic 的 API](#-兼容-anthropic-的-api)
 - [ChatGPT Plus/Pro 作为后端(实验性)](#-chatgpt-pluspro-作为后端实验性)
+- [保持更新](#-保持更新)
 - [OperatorLM 横向对比](#operatorlm-横向对比)
 - [Build from source](#build-from-source)
 - [支持的 endpoints](#支持的-endpoints)
@@ -84,7 +87,12 @@
 - 🖥️ **内嵌的实时 admin UI** —— 在 `http://127.0.0.1:11434/admin/` 中管理 providers、keys、aliases、reliability 配置,并实时观察 audit log 流。零安装:通过 `go:embed` 内嵌在二进制中。
 - 🧪 **JSONL 格式的 audit log** —— 记录每个请求:模型、attempt、upstream URL、status、耗时。`Authorization` 头默认脱敏。Writer 非阻塞。
 - 🤖 **ChatGPT Plus/Pro 作为后端** —— 通过 OAuth (PKCE) 登录一次,你的 Plus/Pro 配额就接入了和你的工具已经在用的同一个 OpenAI 兼容 API。*(实验性 —— 见下面的免责声明。)*
-- 🪶 **一个约 11 MB 的二进制,idle 时约 50 MB RAM** —— 原生 Go。无 `node_modules`、无 Python、无 Docker。毫秒级启动。
+- 🖥️ **在本地运行模型(内置 llama.cpp)** —— 把它指向一个装满 `*.gguf` 文件的目录,OperatorLM 会按需启动 `llama-server`,无需单独的守护进程。**目录(catalog)**支持一键下载精选的 chat、视觉和 embedding 模型。一个*同时*能路由到云端的 Ollama 替代品。
+- 🧬 **本地 embeddings** —— `/v1/embeddings` 由本地 GGUF 模型(Qwen3-Embedding、EmbeddingGemma)在一个独立 sidecar 上提供 —— 非常适合离线 RAG / 语义搜索。云端 embeddings(OpenAI、Azure、Gemini)也走同一个 endpoint。
+- 🎙️ **本地语音(STT + TTS)** —— 用 **Whisper** 转写(`/v1/audio/transcriptions`),用 **Piper** 合成(`/v1/audio/speech`),或**实时把聊天流式转成语音**(`/v1/audio/speech/realtime`)。语音目录支持一键下载。
+- 🟣 **兼容 Anthropic** —— 原生 `/v1/messages` endpoint,外加一个在 OpenAI↔Anthropic 之间双向转换的 `anthropic` provider,因此讲 Claude API 的工具(比如 Claude Code)也能指向 OperatorLM。
+- ⬆️ **OTA 自更新** —— 从托盘点 "Check for updates" 会下载匹配你 OS 的 release asset,校验其 SHA-256,原地替换二进制并重新执行。
+- 🪶 **一个小巧的二进制,idle 时占用极低 RAM** —— 原生 Go。无 `node_modules`、无 Python、无 Docker。毫秒级启动。
 - 🛰️ **Headless 模式** —— `OPERATORLM_NO_TRAY=1`,可以在没有桌面会话的 Linux 上运行。
 - 🪟 **Windows 上无控制台闪窗** —— 编译时带 `-H=windowsgui`。它是一个真正的 tray app。
 
@@ -96,6 +104,8 @@
 - **把多个个人 / 工作账号统一到一个模型名下** —— 在 OS keyring 里分别保存 `openai_personal`、`openai_work`、`openai_side`,对外暴露为一个 `gpt-4o` 模型给 Cursor / Continue 用,遇到 429 时让 router 自动轮换。
 - **用 ChatGPT Plus/Pro 替代 API 额度** —— 通过 OAuth 登录一次,把 Codex / GPT-5.x 系列模型的调用走到你已有的 Plus/Pro 配额上,不再消耗 API 计费 *(实验性 —— 请阅读 [免责声明](#-chatgpt-pluspro-作为后端实验性))*。
 - **Ollama 的 drop-in 替代** —— OperatorLM 监听 `127.0.0.1:11434`,任何已经指向 Ollama 的工具(Continue、Cline、Open WebUI、Zed 等)都不用改一行,就能直接访问 OpenAI / OpenRouter / Gemini / Azure / Bedrock 等。
+- **完全离线 / 隔离网络(air-gapped)** —— 在完全没有配置任何云 provider 的情况下,用本地 GGUF 模型跑 chat、视觉、embeddings 和语音;之后只要加一个 key,同一个二进制立刻就能扇出到云端。
+- **本地 RAG / 语义搜索** —— 用本地模型(Qwen3-Embedding / EmbeddingGemma)通过 `/v1/embeddings` 提供 embeddings,让你的文档留在本机。
 - **开发机或共享工作站上的可审计 LLM 流量** —— 每个请求都落入脱敏后的 JSONL,key 始终留在 OS keyring 中(从不落盘),admin UI 仅监听 loopback、带 host-header 校验和可选的本地 API key。
 - **Headless 自托管网关** —— 在 Linux VM / NAS / 家庭服务器上用 `OPERATORLM_NO_TRAY=1` 启动,从你的笔记本通过 WireGuard 或 Tailscale 访问 `127.0.0.1:11434`,把所有 key 和 audit log 集中在一处。
 
@@ -204,6 +214,43 @@ strategy = "order"
 
 ---
 
+## 🖥️ 在本地运行模型(chat、视觉、embeddings、语音)
+
+OperatorLM 内置了 **llama.cpp 引擎** —— 不需要单独的 Ollama 守护进程。把它指向一个装满 `*.gguf` 文件的目录(在 admin UI 的 **Local models** 标签页),它会把每个模型暴露为 `local/<model>`,按需启动 `llama-server` 并自动切换模型。一切都在 `127.0.0.1` 上离线运行。
+
+| 能力                  | Endpoint                          | 引擎          | 说明                                                   |
+| --------------------- | --------------------------------- | ------------- | ------------------------------------------------------ |
+| 本地 chat             | `/v1/chat/completions`            | llama.cpp     | 任意 GGUF;按需加载、自动切换模型、GPU offload(`-ngl`) |
+| 本地视觉              | `/v1/chat/completions`            | llama.cpp     | 带 `mmproj` projector 的多模态模型(图像输入)         |
+| 本地 embeddings       | `/v1/embeddings`                  | llama.cpp     | 独立 sidecar;与 chat 模型共存                          |
+| 语音转文字(STT)     | `/v1/audio/transcriptions`、`/v1/audio/translations` | whisper.cpp | 本地 Whisper 转写 / 翻译               |
+| 文字转语音(TTS)     | `/v1/audio/speech`                | Piper         | 本地语音;每个音色独立采样率;PCM 流式                 |
+| 实时 chat→语音        | `/v1/audio/speech/realtime`       | llama.cpp + Piper | SSE:模型 token 边生成边合成为音频                  |
+
+### 一键模型目录
+
+**Local models** 标签页自带一个精选目录 —— 选一个模型,OperatorLM 就把它(以及适用时的视觉 projector 或音色配置)以合理的默认值下载到你的模型目录:
+
+- **Chat / 视觉 / agentic**:Qwen2.5-VL 3B、Gemma 3 4B、Qwen2.5 3B、Llama 3.2 3B、Phi-4 Mini、SmallThinker 3B、Gemma 4 E2B。
+- **Embeddings**:**Qwen3-Embedding 0.6B**(同尺寸中多语种表现一流,100+ 语言)和 **EmbeddingGemma 300M**(Google 的轻量 on-device 模型)。两者默认跑在 CPU 上,以免与 chat 模型争抢显存。
+- **语音**:Whisper Base(STT)和 Piper 音色(TTS)。
+
+> [!NOTE]
+> 本地推理需要 `llama-server` 二进制(llama.cpp)。admin UI 提供一键下载,或把 `local_models.llama_server_path` 指向你自己的构建。Whisper 和 Piper 各自有独立的下载按钮。
+
+由于它绑定在 Ollama 的端口上并讲 OpenAI API,任何 local-first 工具(Continue、Cline、Zed、Open WebUI…)都能不改一行地访问你的本地模型 —— 而*同一个* proxy 又能在需要时 failover 到云端。
+
+---
+
+## 🟣 兼容 Anthropic 的 API
+
+OperatorLM 在 `POST /v1/messages` 上原生支持 **Anthropic Messages API**,`anthropic` provider 会在 OpenAI 和 Anthropic 两种 schema 之间双向转换。两点结果:
+
+- 为 **Claude API** 打造的工具(包括 **Claude Code**)可以把 base URL 指向 OperatorLM,从而复用你全部的 failover、aliasing 和审计能力。
+- 你可以自由混用生态:通过 `/v1/chat/completions` 调用 Anthropic 模型,或通过 `/v1/messages` 调用 OpenAI / 本地模型 —— OperatorLM 按需转换。
+
+---
+
 ## 🤖 ChatGPT Plus/Pro 作为后端(实验性)
 
 <details>
@@ -223,6 +270,12 @@ strategy = "order"
 
 ---
 
+## ⬆️ 保持更新
+
+OperatorLM 通过 GitHub Releases 自更新。从托盘菜单选 **Check for updates**(或 `POST /admin/update/check`):它会拉取最新 release,下载匹配你 OS/arch 的 asset 以及 `checksums.txt`,**校验 SHA-256**,原地替换正在运行的二进制,然后重新执行到新版本。dev 构建(没有内嵌版本号)会被跳过。
+
+---
+
 ## OperatorLM 横向对比
 
 | 特性                                  | OperatorLM | LiteLLM proxy | OmniRoute |
@@ -234,6 +287,9 @@ strategy = "order"
 | 内嵌 admin UI                         | ✅         | ✅            | ✅        |
 | 原生 tray app                         | ✅         | ❌            | ❌        |
 | Audit log(JSONL,脱敏)              | ✅         | ✅            | ✅        |
+| 内置本地推理(GGUF/llama.cpp)        | ✅         | ❌            | ❌        |
+| 本地 embeddings + 语音(STT/TTS)     | ✅         | ❌            | ❌        |
+| 兼容 Anthropic `/v1/messages`         | ✅         | ✅            | 部分      |
 | 把 ChatGPT Plus/Pro 当后端用          | ✅(实验性)| ❌            | ❌        |
 
 **如果你希望** 拥有一个 desktop-first、单二进制的 proxy,像生产服务一样处理 failover 和多账号路由 —— 同时不想跑一个 Python 服务,也不想把 key 交给别人的云,**那就用 OperatorLM**。
@@ -276,10 +332,11 @@ OPERATORLM_NO_TRAY=1 ./OperatorLM
 ### 3. 配置(admin UI)
 
 1. 打开 admin UI。
-2. **Providers** → 新增一个 provider,选择其类型(`openai`、`openrouter`、`groq`、`gemini`、`azure-openai`、`chatgpt-codex`、`custom`)。
+2. **Providers** → 新增一个 provider,选择其类型(`openai`、`openrouter`、`groq`、`gemini`、`azure-openai`、`anthropic`、`chatgpt-codex`、`custom` 等)。
 3. **Keys** → 粘贴你的 API key。它会被写入 OS keyring;TOML 文件只保存引用。
 4. **Aliases** *(可选)* → 配置多账号 / 多 provider 的 failover。
-5. **Try It** → 内嵌发一个请求验证。
+5. **Local models** *(可选)* → 指向一个 `*.gguf` 目录(或一键下载目录中的模型),即可在本地跑 chat / embeddings / 语音。
+6. **Try It** → 内嵌发一个请求验证。
 
 ### 4. 从任何会说 OpenAI 的工具中使用
 
@@ -323,16 +380,27 @@ console.log(chat.choices[0].message.content);
 
 ## 支持的 endpoints
 
-| Endpoint                       | 状态                                    |
-| ------------------------------ | --------------------------------------- |
-| `POST /v1/chat/completions`    | ✅ 完整支持,含 streaming                |
-| `POST /v1/images/generations`  | ✅(无 streaming)                        |
-| `POST /v1/responses`           | ✅(由 `chatgpt-codex` 使用)             |
-| `GET  /v1/models`              | ✅ 汇总所有已配置 provider 的模型        |
+| Endpoint                          | 状态                                    |
+| --------------------------------- | --------------------------------------- |
+| `POST /v1/chat/completions`       | ✅ 完整支持,含 streaming                |
+| `POST /v1/messages`               | ✅ Anthropic Messages API(OpenAI↔Anthropic)|
+| `POST /v1/responses`              | ✅(由 `chatgpt-codex` 使用)             |
+| `POST /v1/embeddings`             | ✅ 云端(OpenAI/Azure/Gemini)+ 本地 GGUF |
+| `POST /v1/images/generations`     | ✅(无 streaming)                        |
+| `POST /v1/audio/transcriptions`   | ✅ Whisper(本地)+ provider STT         |
+| `POST /v1/audio/translations`     | ✅ Whisper(本地)                        |
+| `POST /v1/audio/speech`           | ✅ Piper(本地)+ provider TTS           |
+| `POST /v1/audio/speech/realtime`  | ✅ chat→语音流式(SSE)                  |
+| `GET  /v1/models`                 | ✅ 汇总所有已配置 provider 的模型        |
+| `GET  /health`                    | ✅ 公开的存活检查                        |
 
 ## 支持的 providers
 
-`openai` · `openrouter` · `groq` · `gemini` · `azure-openai` · `mistral` · `nvidia-nim` · `bedrock` · `opencode-zen` · `chatgpt-codex` · `custom`(任何兼容 OpenAI 的 upstream)。
+**云端 / API:** `openai` · `openrouter` · `groq` · `gemini` · `azure-openai` · `anthropic` · `mistral` · `nvidia-nim` · `bedrock` · `opencode-zen` · `custom`(任何兼容 OpenAI 的 upstream)。
+
+**本地(无云):** 内置 `llama.cpp` 引擎(chat + 视觉 + embeddings)、`whisper.cpp`(STT)、`piper`(TTS)。
+
+**实验性:** `chatgpt-codex`(通过 OAuth 使用 ChatGPT Plus/Pro)· `antigravity`(通过本地 Antigravity 会话使用 Gemini)。
 
 ---
 
@@ -375,10 +443,12 @@ TOML 文件按名字引用 key(`operatorlm:openai_work`)—— 从不保存密�
 ```
 internal/
   config/      # TOML + OS keyring 集成
-  providers/   # openai · openrouter · groq · gemini · azure · chatgpt-codex · custom
+  providers/   # 云端 providers(openai · anthropic · gemini · azure · …)+
+               #   内置本地引擎(llama.cpp · whisper · piper)+ 目录/下载器
   router/      # alias resolver · retry · circuit breaker · rate limiter
   server/      # HTTP handlers + 内嵌 admin UI (web/)
   audit/       # 非阻塞的 JSONL audit logger
+  update/      # 通过 GitHub Releases 的 OTA 自更新(SHA-256 校验)
   tray/        # 跨平台 system tray
 main.go        # 入口
 ```

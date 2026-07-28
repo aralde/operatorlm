@@ -1842,6 +1842,22 @@ function applyLocalModelsStatus(st) {
   $('[name=piper_port]', localModelsForm).value            = st.piper_port || '';
   $('[name=piper_model]', localModelsForm).value           = st.piper_model || '';
 
+  // Embeddings fields
+  $('[name=embeddings_enabled]', localModelsForm).checked  = !!st.embeddings_enabled;
+  $('[name=embeddings_port]', localModelsForm).value        = st.embeddings_port || '';
+  $('[name=embeddings_extra_args]', localModelsForm).value  = (st.embeddings_extra_args || []).join(' ');
+  // Populate the model dropdown from discovered models, keeping the saved pick
+  // selectable even if a rescan hasn't surfaced it yet.
+  const embSel = $('#embeddings-model-select', localModelsForm);
+  if (embSel) {
+    const chosen = st.embeddings_model || '';
+    const ids = (st.models || []).map(m => m.id);
+    if (chosen && !ids.includes(chosen)) ids.unshift(chosen);
+    embSel.innerHTML = '<option value="">— none —</option>' +
+      ids.map(id => `<option value="${escHtml(id)}"${id === chosen ? ' selected' : ''}>${escHtml(id)}</option>`).join('');
+    embSel.value = chosen;
+  }
+
   if (st.running) {
     localModelsStatus.textContent = 'running: ' + st.current;
     localModelsStatus.style.color = 'var(--success)';
@@ -2046,6 +2062,11 @@ localModelsForm.addEventListener('submit', async e => {
     piper_path:          (fd.get('piper_path') || '').toString().trim(),
     piper_port:          num('piper_port'),
     piper_model:         (fd.get('piper_model') || '').toString().trim(),
+
+    embeddings_enabled:    $('[name=embeddings_enabled]', localModelsForm).checked,
+    embeddings_port:       num('embeddings_port'),
+    embeddings_model:      (fd.get('embeddings_model') || '').toString().trim(),
+    embeddings_extra_args: (fd.get('embeddings_extra_args') || '').toString().trim().split(/\s+/).filter(Boolean),
   };
   try {
     applyLocalModelsStatus(await api('POST', '/admin/localmodels', payload));

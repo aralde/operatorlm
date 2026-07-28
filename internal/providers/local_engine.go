@@ -48,6 +48,14 @@ type LocalEngine struct {
 	whisperDone   chan struct{}
 	currentWspMod string
 
+	// Embeddings process management (llama-server --embeddings sidecar)
+	embedCmd      *exec.Cmd
+	embedCancel   context.CancelFunc
+	embedDone     chan struct{}
+	currentEmbMod string
+	embedPort     int
+	embedArgs     string // join of the running EmbeddingsExtraArgs, for change detection
+
 	// Piper server
 	piperSrv *http.Server
 }
@@ -75,6 +83,7 @@ func (e *LocalEngine) Reconfigure(cfg config.LocalModelsConfig) {
 
 	e.manageWhisper(cfg)
 	e.managePiper(cfg)
+	e.manageEmbeddings(cfg)
 }
 
 // Refresh rescans the configured models directory.
@@ -172,6 +181,7 @@ func (e *LocalEngine) Stop() {
 	defer e.procMu.Unlock()
 	e.stopLocked()
 	e.stopWhisperLocked()
+	e.stopEmbeddingsLocked()
 	e.stopPiperLocked()
 }
 
@@ -505,6 +515,141 @@ func (e *LocalEngine) startWhisperLocked(cfg config.LocalModelsConfig) {
 		defer close(done)
 		_ = cmd.Wait()
 		log.Printf("local engine: whisper-server stopped")
+	}()
+}
+
+// resolveEmbeddingsPath returns the on-disk .gguf path for the configured
+// embeddings model id. It checks the scanned index first, then falls back to a
+// fresh disk scan so the sidecar can start even before the chat engine's first
+// Refresh (registry.Reload calls Reconfigure before Refresh).
+func (e *LocalEngine) resolveEmbeddingsPath(cfg config.LocalModelsConfig) (string, bool) {
+	id := cfg.EmbeddingsModelID()
+	if id == "" {
+		return "", false
+	}
+	e.dataMu.RLock()
+	m, ok := e.byID[id]
+	e.dataMu.RUnlock()
+	if ok {
+		return m.Path, true
+	}
+	models, _ := ScanLocalModels(cfg.ModelsDir)
+	for _, mm := range models {
+		if mm.ID == id {
+			return mm.Path, true
+		}
+	}
+	return "", false
+}
+
+// manageEmbeddings starts, stops, or restarts the embeddings sidecar to match
+// cfg. Mirrors manageWhisper: gated by its own enabled flag, independent of the
+// chat engine and the other sidecars.
+func (e *LocalEngine) manageEmbeddings(cfg config.LocalModelsConfig) {
+	e.procMu.Lock()
+	defer e.procMu.Unlock()
+
+	if !cfg.EmbeddingsEnabled || strings.TrimSpace(cfg.EmbeddingsModel) == "" {
+		e.stopEmbeddingsLocked()
+		return
+	}
+
+	wantMod := cfg.EmbeddingsModelID()
+	wantArgs := strings.Join(cfg.EmbeddingsExtraArgs, "\n")
+	if e.embedCmd != nil && (e.embedPort != cfg.EmbeddingsPort || e.currentEmbMod != wantMod || e.embedArgs != wantArgs) {
+		e.stopEmbeddingsLocked()
+	}
+
+	if e.embedCmd == nil {
+		go e.startEmbeddingsLocked(cfg)
+	}
+}
+
+func (e *LocalEngine) stopEmbeddingsLocked() {
+	if e.embedCancel != nil {
+		e.embedCancel()
+		e.embedCancel = nil
+	}
+	if e.embedCmd != nil {
+		if e.embedCmd.Process != nil {
+			_ = e.embedCmd.Process.Kill()
+		}
+		if e.embedDone != nil {
+			<-e.embedDone
+			e.embedDone = nil
+		}
+		e.embedCmd = nil
+		e.currentEmbMod = ""
+		e.embedPort = 0
+		e.embedArgs = ""
+	}
+}
+
+func (e *LocalEngine) startEmbeddingsLocked(cfg config.LocalModelsConfig) {
+	bin := cfg.LlamaServerPath
+	if !fileExists(bin) {
+		if _, err := exec.LookPath(bin); err != nil {
+			log.Printf("local engine: llama-server not found (%q) for embeddings: install llama.cpp or set llama_server_path", bin)
+			return
+		}
+	}
+
+	modelPath, ok := e.resolveEmbeddingsPath(cfg)
+	if !ok {
+		log.Printf("local engine: embeddings model %q not found under %s (run a rescan if you just added it)", cfg.EmbeddingsModel, cfg.ModelsDir)
+		return
+	}
+	modelID := cfg.EmbeddingsModelID()
+
+	// Per-model GPU offload from the catalog (embedding entries default to CPU
+	// so the sidecar doesn't compete with the chat model for VRAM); otherwise
+	// fall back to the engine's global -ngl.
+	ngl := cfg.NGPULayers
+	if cNGL, _, found := CatalogSettingsFor(modelID); found {
+		ngl = cNGL
+	}
+
+	args := []string{
+		"-m", modelPath,
+		// --alias makes llama-server echo the clean model id (not the .gguf
+		// path) in responses, matching how the embed-local provider advertises it.
+		"--alias", modelID,
+		"--embeddings",
+		"--host", "127.0.0.1",
+		"--port", strconv.Itoa(cfg.EmbeddingsPort),
+	}
+	if ngl > 0 {
+		args = append(args, "-ngl", strconv.Itoa(ngl))
+	}
+	// ExtraArgs lets the user pass e.g. --pooling mean for models whose GGUF
+	// metadata doesn't carry the right pooling type, without a recompile.
+	args = append(args, cfg.EmbeddingsExtraArgs...)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cmd := prepareCommand(ctx, bin, args...)
+	cmd.Stdout = logWriter{prefix: "llama-embeddings"}
+	cmd.Stderr = logWriter{prefix: "llama-embeddings"}
+
+	if err := startCommand(cmd); err != nil {
+		log.Printf("local engine: failed to start embeddings sidecar: %v", err)
+		cancel()
+		return
+	}
+
+	e.embedCmd = cmd
+	e.embedCancel = cancel
+	e.currentEmbMod = modelID
+	e.embedPort = cfg.EmbeddingsPort
+	e.embedArgs = strings.Join(cfg.EmbeddingsExtraArgs, "\n")
+	done := make(chan struct{})
+	e.embedDone = done
+
+	log.Printf("local engine: embeddings sidecar started on port %d with model %s", cfg.EmbeddingsPort, modelID)
+
+	go func() {
+		defer close(done)
+		_ = cmd.Wait()
+		log.Printf("local engine: embeddings sidecar stopped")
 	}()
 }
 

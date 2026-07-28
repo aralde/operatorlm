@@ -46,8 +46,12 @@ func (r *Registry) Reload() {
 		r.engine = NewLocalEngine(lm)
 	}
 	r.engine.Reconfigure(lm)
-	if lm.Enabled {
+	// Rescan whenever any local capability is on, so discovered models are
+	// available both to the chat router and to the embeddings model picker.
+	if lm.Enabled || lm.EmbeddingsEnabled {
 		r.engine.Refresh()
+	}
+	if lm.Enabled {
 		newByKey[localProviderName] = newLocalProvider(lm, r.engine)
 		newBuiltin[localProviderName] = true
 	} else {
@@ -83,6 +87,18 @@ func (r *Registry) Reload() {
 			Models:  []string{"tts-1"},
 		}, nil)
 		newBuiltin["piper-local"] = true
+	}
+	if embID := lm.EmbeddingsModelID(); lm.EmbeddingsEnabled && embID != "" {
+		// Dedicated llama-server --embeddings sidecar (managed by the engine).
+		// It speaks the OpenAI /v1/embeddings shape natively, so a plain
+		// openAILike pointed at its loopback port is all the routing needed.
+		newByKey["embed-local"] = newOpenAILike(config.Provider{
+			Name:    "embed-local",
+			Type:    "openai",
+			BaseURL: "http://127.0.0.1:" + strconv.Itoa(lm.EmbeddingsPort) + "/v1",
+			Models:  []string{embID},
+		}, nil)
+		newBuiltin["embed-local"] = true
 	}
 
 	r.byKey = newByKey

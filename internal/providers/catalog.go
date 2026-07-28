@@ -145,6 +145,33 @@ var catalog = []CatalogEntry{
 		},
 	},
 	{
+		ID:          "qwen3-embedding-0.6b",
+		Name:        "Qwen3-Embedding 0.6B",
+		Description: "Best-in-class multilingual text embeddings for its size (100+ languages, 32k context). Top pick for local RAG / semantic search.",
+		Tags:        []string{"embedding", "text"},
+		Backend:     "cpu",
+		Recommended: true,
+		ModelID:     "Qwen3-Embedding-0.6B-Q8_0",
+		NGPULayers:  0, // CPU by default so it doesn't compete with the chat model for VRAM
+		ContextSize: 0,
+		Files: []CatalogFile{
+			{URL: "https://huggingface.co/Qwen/Qwen3-Embedding-0.6B-GGUF/resolve/main/Qwen3-Embedding-0.6B-Q8_0.gguf", Filename: "Qwen3-Embedding-0.6B-Q8_0.gguf", Role: "model", Size: 639 << 20},
+		},
+	},
+	{
+		ID:          "embeddinggemma-300m",
+		Name:        "EmbeddingGemma 300M",
+		Description: "Google's on-device embedding model: multilingual, half the size of Qwen3-0.6B, excellent retrieval quality. Lightest local pick.",
+		Tags:        []string{"embedding", "text"},
+		Backend:     "cpu",
+		ModelID:     "embeddinggemma-300M-Q8_0",
+		NGPULayers:  0,
+		ContextSize: 0,
+		Files: []CatalogFile{
+			{URL: "https://huggingface.co/ggml-org/embeddinggemma-300M-GGUF/resolve/main/embeddinggemma-300M-Q8_0.gguf", Filename: "embeddinggemma-300M-Q8_0.gguf", Role: "model", Size: 334 << 20},
+		},
+	},
+	{
 		ID:          "whisper-base",
 		Name:        "Whisper Base (STT)",
 		Description: "Local speech-to-text model. Highly accurate and fast multilingual transcription.",

@@ -840,6 +840,34 @@
               </div>
             </div>
 
+            <!-- Embeddings Settings -->
+            <div style="margin-top: 20px; border-top: 1px solid var(--border); padding-top: 15px; margin-bottom: 15px;">
+              <h3>Embeddings (llama.cpp)</h3>
+              <div class="field" style="margin-top: 10px;">
+                <label class="checkbox">
+                  <input type="checkbox" name="embeddings_enabled" />
+                  <span>Enable local embeddings</span>
+                  <span class="help-pop" data-help="Runs a dedicated llama-server --embeddings sidecar so /v1/embeddings can use a local GGUF model. It coexists with the chat model (separate process/port) instead of swapping it out.">?</span>
+                </label>
+              </div>
+              <div class="field">
+                <label>Embeddings model <span class="help-pop" data-help="A GGUF model discovered in the scan folder. Download Qwen3-Embedding-0.6B or EmbeddingGemma-300M from the Recommended models above, then pick it here.">?</span></label>
+                <select name="embeddings_model" id="embeddings-model-select" style="width:100%;">
+                  <option value="">— none —</option>
+                </select>
+              </div>
+              <div class="grid-2">
+                <div class="field">
+                  <label>Embeddings port</label>
+                  <input name="embeddings_port" type="number" min="1" max="65535" placeholder="8084" />
+                </div>
+                <div class="field">
+                  <label>Extra args <span class="help-pop" data-help="Passed verbatim to llama-server, e.g. --pooling mean for models whose GGUF metadata lacks a pooling type. Space-separated.">?</span></label>
+                  <input name="embeddings_extra_args" type="text" placeholder="--pooling mean" spellcheck="false" />
+                </div>
+              </div>
+            </div>
+
             <div class="actions">
               <button type="submit" class="btn-primary">Apply</button>
               <button type="button" id="localmodels-rescan" class="btn-secondary">Rescan folder</button>
