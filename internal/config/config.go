@@ -203,6 +203,32 @@ type LocalModelsConfig struct {
 	PiperPath    string `toml:"piper_path,omitempty" json:"piper_path,omitempty"`
 	PiperPort    int    `toml:"piper_port,omitempty" json:"piper_port,omitempty"`
 	PiperModel   string `toml:"piper_model,omitempty" json:"piper_model,omitempty"`
+
+	// Local embeddings (llama.cpp --embeddings). Runs as a dedicated
+	// llama-server sidecar on its own port so it coexists with the chat model
+	// instead of swapping it out — llama-server's --embeddings mode disables
+	// completions, so chat and embeddings cannot share one process. Reuses
+	// LlamaServerPath (same binary, different flag).
+	EmbeddingsEnabled   bool     `toml:"embeddings_enabled" json:"embeddings_enabled"`
+	EmbeddingsPort      int      `toml:"embeddings_port,omitempty" json:"embeddings_port,omitempty"`
+	EmbeddingsModel     string   `toml:"embeddings_model,omitempty" json:"embeddings_model,omitempty"`
+	EmbeddingsExtraArgs []string `toml:"embeddings_extra_args,omitempty" json:"embeddings_extra_args,omitempty"`
+}
+
+// EmbeddingsModelID returns the routable model id for the configured local
+// embeddings model: its .gguf filename stem. Only a literal ".gguf" suffix is
+// stripped — model ids carry version dots (e.g. "Qwen3-Embedding-0.6B-Q8_0"),
+// so filepath.Ext would mangle them. Empty when no model is configured.
+func (l LocalModelsConfig) EmbeddingsModelID() string {
+	name := strings.TrimSpace(l.EmbeddingsModel)
+	if name == "" {
+		return ""
+	}
+	base := filepath.Base(name)
+	if ext := filepath.Ext(base); strings.EqualFold(ext, ".gguf") {
+		base = base[:len(base)-len(ext)]
+	}
+	return base
 }
 
 // exeDir returns the absolute directory of the running executable, or "".
@@ -315,6 +341,9 @@ func (l LocalModelsConfig) WithDefaults() LocalModelsConfig {
 	}
 	if l.PiperPort == 0 {
 		l.PiperPort = 8083
+	}
+	if l.EmbeddingsPort == 0 {
+		l.EmbeddingsPort = 8084
 	}
 	if l.PiperPath == "" {
 		if _, err := exec.LookPath("piper"); err == nil {

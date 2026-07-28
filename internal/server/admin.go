@@ -239,8 +239,8 @@ func (s *Server) handleAliases(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// Validate targets reference existing providers/keys. "local",
-		// "whisper-local" and "piper-local" are built-in (local engine).
-		builtin := map[string]bool{"local": true, "whisper-local": true, "piper-local": true}
+		// "whisper-local", "piper-local" and "embed-local" are built-in (local engine).
+		builtin := map[string]bool{"local": true, "whisper-local": true, "piper-local": true, "embed-local": true}
 		for i, t := range a.Targets {
 			if builtin[t.Provider] {
 				if t.UpstreamModel == "" {
@@ -647,6 +647,12 @@ func (s *Server) builtinProbe(name string) ([]string, bool) {
 		return []string{"whisper-1"}, true
 	case "piper-local":
 		return []string{"tts-1"}, true
+	case "embed-local":
+		// The provider advertises the configured embeddings model id.
+		if p, ok := s.reg.ByName("embed-local"); ok {
+			return p.Models(), true
+		}
+		return []string{}, true
 	}
 	return nil, false
 }
