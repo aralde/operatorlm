@@ -28,10 +28,19 @@ func OnReady(cfg *config.Config, updMgr *update.Manager) {
 	systray.AddSeparator()
 	mQuit := systray.AddMenuItem("Quit", "Stop the proxy")
 
-	// Reflect updater state into the menu label. A separate ticker keeps the
-	// label honest while CheckAndUpdate is running, since that call is
-	// asynchronous from the click.
-	go watchUpdateState(updMgr, mUpdate)
+	// Dev builds carry no embedded version, so self-update can never apply.
+	// Present it as a disabled, non-actionable item rather than letting a click
+	// flip the label to "Update failed — click to retry".
+	if updMgr.IsDevBuild() {
+		mUpdate.SetTitle("Dev build — updates disabled")
+		mUpdate.SetTooltip("Built without an embedded version; download a release to enable self-update.")
+		mUpdate.Disable()
+	} else {
+		// Reflect updater state into the menu label. A separate ticker keeps the
+		// label honest while CheckAndUpdate is running, since that call is
+		// asynchronous from the click.
+		go watchUpdateState(updMgr, mUpdate)
+	}
 
 	go func() {
 		for {
@@ -69,6 +78,8 @@ func watchUpdateState(m *update.Manager, item *systray.MenuItem) {
 			label = "Restarting…"
 		case "uptodate":
 			label = "Up to date (" + s.Current + ")"
+		case "devbuild":
+			label = "Dev build — updates disabled"
 		case "error":
 			label = "Update failed — click to retry"
 		default:

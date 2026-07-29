@@ -48,7 +48,7 @@ const (
 
 // State is a JSON-serialisable snapshot of the updater's current status.
 type State struct {
-	Status    string    `json:"status"` // idle|checking|available|downloading|verifying|applying|restarting|uptodate|error
+	Status    string    `json:"status"` // idle|checking|available|downloading|verifying|applying|restarting|uptodate|devbuild|error
 	Current   string    `json:"current"`
 	Latest    string    `json:"latest,omitempty"`
 	Error     string    `json:"error,omitempty"`
@@ -78,6 +78,14 @@ func NewManager(currentVersion string) *Manager {
 	}
 	m.setState(State{Status: "idle", Current: currentVersion, UpdatedAt: time.Now()})
 	return m
+}
+
+// IsDevBuild reports whether this binary was built without an embedded version
+// string. Self-update is a no-op for dev builds — there's nothing to compare
+// against a release tag — so callers (e.g. the tray) can present a distinct,
+// non-error state instead of an actionable "retry".
+func (m *Manager) IsDevBuild() bool {
+	return m.current == ""
 }
 
 // Snapshot returns a copy of the current state.
@@ -115,8 +123,11 @@ func (m *Manager) CheckAndUpdate(ctx context.Context) {
 	defer m.running.Unlock()
 
 	if m.current == "" {
-		m.setState(State{Status: "error", Error: "dev build (no version embedded); update skipped"})
-		log.Printf("update: refusing to update a dev build (Version is empty)")
+		// Not an error — a dev build simply has no version to compare against a
+		// release tag. Report it as a distinct state so the UI doesn't nag the
+		// user to "retry" something that can never succeed.
+		m.setState(State{Status: "devbuild", Error: "dev build (no version embedded); update skipped"})
+		log.Printf("update: skipping self-update on a dev build (Version is empty)")
 		return
 	}
 
