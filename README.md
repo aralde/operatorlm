@@ -12,6 +12,8 @@
 > **A local, OpenAI-compatible proxy with real failover, multi-account aliasing, and zero secrets on disk.**
 > One tiny binary sits between your IDE/SDK and every LLM provider you use — OpenAI, OpenRouter, Groq, Google Gemini, Azure OpenAI, Anthropic, and even your **ChatGPT Plus/Pro** subscription. It also runs **fully local** GGUF models, embeddings, and speech (STT/TTS) with no cloud at all — an Ollama replacement *and* a cloud router in the same binary.
 
+![OperatorLM presentation](assets/operatorlm-demo.gif)
+
 ![OperatorLM Banner](images/banner.png)
 
 > [!IMPORTANT]
