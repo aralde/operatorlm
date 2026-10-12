@@ -2,7 +2,7 @@
 
 [English](README.md) | [Español](README.es.md) | [Português](README.pt.md) | [简体中文](README.zh.md)
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Go](https://img.shields.io/badge/Go-1.22%2B-00ADD8?logo=go&logoColor=white)](https://go.dev/)
 [![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-blue)](#build-from-source)
 [![Single binary](https://img.shields.io/badge/binary-~11MB-success)](#)
@@ -465,4 +465,4 @@ Se o OperatorLM te economiza tempo ou facilita o seu setup, **uma ⭐ no GitHub 
 
 Bug reports, pull requests e integrações de providers são muito bem-vindos.
 
-**Licença**: [MIT](LICENSE)
+**Licença**: [Apache 2.0](LICENSE)
