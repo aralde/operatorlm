@@ -47,7 +47,7 @@ Head to the [Releases page](https://github.com/aralde/operatorlm/releases/latest
 
 ### 3. Open the admin UI
 
-Browse to **<http://127.0.0.1:11434/admin/>** → add a provider → paste an API key → send a test request from the **Try It** tab.
+Browse to **<http://127.0.0.1:11434/>** → add a provider → paste an API key → send a test request from the **Try It** tab.
 
 ### 4. Point your tools at it
 
@@ -87,7 +87,7 @@ Any OpenAI-compatible client works — set the base URL to `http://127.0.0.1:114
 - 🔀 **Multi-account aliasing** — Stack 3 OpenAI keys, 2 OpenRouter accounts, and a free Groq backup behind a single model name. OperatorLM walks the list until one succeeds.
 - 🛡️ **Production-grade failover** — Per-target **circuit breaker** (3-state), retries with exponential backoff + jitter, sliding-window **RPM limiter**. Different cooldowns for 429 / 5xx / network errors.
 - 🔐 **Zero secrets on disk** — API keys live in **Windows Credential Manager / macOS Keychain / Linux Secret Service**. The TOML file only holds *references*, never the keys themselves.
-- 🖥️ **Embedded live admin UI** — Manage providers, keys, aliases, reliability settings, and watch the audit log stream — all from `http://127.0.0.1:11434/admin/`. Zero install: it's `go:embed`ded in the binary.
+- 🖥️ **Embedded live admin UI** — Manage providers, keys, aliases, reliability settings, and watch the audit log stream — all from `http://127.0.0.1:11434/`. Zero install: it's `go:embed`ded in the binary.
 - 🧪 **Audit log as JSONL** — Every request: model, attempt, upstream URL, status, duration. Authorization headers redacted by default. Non-blocking writer.
 - 🤖 **ChatGPT Plus/Pro as a backend** — Sign in once via OAuth (PKCE), get your Plus/Pro quota wired into the same OpenAI-compatible API your tools already speak. *(Experimental — see disclaimer below.)*
 - 🖥️ **Run models locally (built-in llama.cpp)** — Point it at a folder of `*.gguf` files and OperatorLM spawns `llama-server` on demand, no separate daemon. One-click **catalog** downloads curated chat, vision, and embedding models. A true Ollama replacement that *also* routes to the cloud.
@@ -96,7 +96,7 @@ Any OpenAI-compatible client works — set the base URL to `http://127.0.0.1:114
 - 🟣 **Anthropic-compatible** — A native `/v1/messages` endpoint plus an `anthropic` provider with bidirectional OpenAI↔Anthropic translation, so tools that speak the Claude API (like Claude Code) can point at OperatorLM too.
 - ⬆️ **OTA self-update** — "Check for updates" from the tray downloads the matching release asset, verifies its SHA-256, swaps the binary in place, and re-execs.
 - 🪶 **One tiny binary, low RAM at idle** — Native Go. No `node_modules`, no Python, no Docker. Starts in milliseconds.
-- 🛰️ **Headless mode** — `OPERATORLM_NO_TRAY=1` to run on a Linux box without a desktop session.
+- 🛰️ **Headless build** — `OperatorLM-linux-amd64-headless` is a static binary with no tray and no GTK, made for servers and containers. The tray build can also skip the tray with `OPERATORLM_NO_TRAY=1`.
 - 🪟 **No console flash on Windows** — Built with `-H=windowsgui`. It's a real tray app.
 
 ---
@@ -110,7 +110,7 @@ Any OpenAI-compatible client works — set the base URL to `http://127.0.0.1:114
 - **Fully offline / air-gapped** — run local GGUF models for chat, vision, embeddings, and speech with no cloud provider configured at all; the same binary later fans out to the cloud the moment you add a key.
 - **Local RAG / semantic search** — serve embeddings from a local model (Qwen3-Embedding / EmbeddingGemma) over `/v1/embeddings`, keeping your documents on-device.
 - **Auditable LLM traffic on a dev box or shared workstation** — every request lands in redacted JSONL, keys stay in the OS keyring (never on disk), and the admin UI is loopback-only with host-header validation and an optional local API key.
-- **Headless self-hosted gateway** — run on a Linux VM / NAS / home server with `OPERATORLM_NO_TRAY=1`, reach `127.0.0.1:11434` over WireGuard or Tailscale from your laptop, and centralize your keys and audit log in one place.
+- **Headless self-hosted gateway** — run the headless binary on a Linux VM / NAS / home server, reach `127.0.0.1:11434` over WireGuard or Tailscale from your laptop, and centralize your keys and audit log in one place.
 
 ---
 
@@ -275,7 +275,7 @@ If you accept the risks: open the admin UI, add a `chatgpt-codex` provider, clic
 
 ## ⬆️ Keeping it updated
 
-OperatorLM self-updates from GitHub Releases. Pick **Check for updates** from the tray menu (or `POST /admin/update/check`): it fetches the latest release, downloads the asset matching your OS/arch plus `checksums.txt`, **verifies the SHA-256**, swaps the running binary in place, and re-execs into the new version. Dev builds (no embedded version) are skipped.
+OperatorLM self-updates from GitHub Releases. Pick **Check for updates** from the tray menu (or `POST /admin/update/check`): it fetches the latest release, downloads the asset matching your OS/arch and variant (tray or headless) plus `checksums.txt`, **verifies the SHA-256**, swaps the running binary in place, and re-execs into the new version. Dev builds (no embedded version) are skipped.
 
 ---
 
@@ -314,7 +314,7 @@ OperatorLM self-updates from GitHub Releases. Pick **Check for updates** from th
 ```
 
 > [!NOTE]
-> CGO is required (for system tray + OS keyring).
+> CGO is required for the system tray. Headless builds (`NOTRAY=1`) don't need it.
 > **Linux**: install `gcc libgtk-3-dev libayatana-appindicator3-dev` (Debian/Ubuntu) or the Fedora/RHEL equivalents listed in `build.sh`.
 
 ### 2. Run
@@ -331,7 +331,7 @@ NOTRAY=1 ./build.sh
 ./operatorlm
 ```
 
-A tray icon appears. The admin UI is at **<http://127.0.0.1:11434/admin/>**.
+A tray icon appears. The admin UI is at **<http://127.0.0.1:11434/>**.
 
 ### 3. Configure (admin UI)
 
