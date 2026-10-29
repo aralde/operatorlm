@@ -1522,3 +1522,70 @@ dialog.modal .actions {
     transition-duration: .001ms !important;
   }
 }
+
+/* ── Local models: quick setup ──────────────────────────────── */
+
+.cap-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: 12px;
+}
+.cap-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+}
+.cap-card.is-on { border-color: var(--accent-ring); }
+.cap-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.cap-head h2 { margin: 0; }
+.cap-head .tag { margin: 0; }
+.cap-desc { margin: 0; }
+.cap-label {
+  margin-top: 4px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--text-mute);
+}
+.cap-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+.cap-row select { flex: 1; min-width: 0; }
+.cap-row button { flex: none; }
+.cap-usage {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.cap-usage code { font-size: 11px; }
+.cap-pair { display: inline-flex; align-items: center; gap: 6px; margin-right: 10px; white-space: nowrap; }
+.cap-error { margin: 0; overflow-wrap: anywhere; }
+
+dialog.modal.modal-wide { max-width: 920px; }
+dialog.modal .modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+dialog.modal .modal-head h2 { margin: 0; padding-bottom: 10px; border-bottom: 0; }
+dialog.modal .card { margin-top: 12px; }
+
+@media (max-width: 560px) {
+  .cap-grid { grid-template-columns: 1fr; }
+  .cap-row { flex-direction: column; }
+}
