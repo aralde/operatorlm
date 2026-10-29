@@ -1086,7 +1086,7 @@ function ttsExampleCard() {
     const payload = buildTtsPayload();
     const body = JSON.stringify(payload);
     const streaming = payload.response_format === 'pcm';
-    return `curl${streaming ? ' -N' : ''} http://${location.host}/v1/audio/speech \\
+    return `curl${streaming ? ' -N' : ''} ${location.protocol}//${location.host}/v1/audio/speech \\
   -H "Content-Type: application/json" \\
   -d '${body.replace(/'/g, "'\\''")}' \\
   -o speech.${streaming ? 'pcm' : 'wav'}`;
@@ -1255,7 +1255,7 @@ function realtimeExampleCard() {
   });
   const buildCurl = () => {
     const body = JSON.stringify(buildPayload());
-    return `curl -N http://${location.host}/v1/audio/speech/realtime \\
+    return `curl -N ${location.protocol}//${location.host}/v1/audio/speech/realtime \\
   -H "Content-Type: application/json" \\
   -d '${body.replace(/'/g, "'\\''")}'`;
   };
@@ -1365,7 +1365,7 @@ function sttExampleCard() {
       <button type="button" class="btn-secondary copy-btn">Copy</button>
       <button type="button" class="btn-primary run-btn">Run</button>
     </div>`;
-  const sttCurl = `curl http://${location.host}/v1/audio/transcriptions \\
+  const sttCurl = `curl ${location.protocol}//${location.host}/v1/audio/transcriptions \\
   -F model=whisper-1 \\
   -F file=@audio.wav`;
   $('.curl-pre', card).textContent = sttCurl;
@@ -1413,6 +1413,50 @@ async function runSTT(card, curl) {
   }
 }
 
+function embeddingsExampleCard(model) {
+  const card = document.createElement('div');
+  card.className = 'example';
+  card.innerHTML = `
+    <div class="example-head">
+      <div class="example-name">${escHtml(model)}</div>
+      <div class="example-meta"><span class="tag">embeddings · llama.cpp</span></div>
+    </div>
+    <pre class="curl-pre"></pre>
+    <div class="example-actions">
+      <button type="button" class="btn-secondary copy-btn">Copy</button>
+      <button type="button" class="btn-primary run-btn">Run</button>
+    </div>`;
+  const body = () => ({ model, input: tryPromptIn.value || 'Say hi in one short sentence.' });
+  const curl = () => `curl ${location.protocol}//${location.host}/v1/embeddings \\
+  -H "Content-Type: application/json" \\
+  -d '${JSON.stringify(body())}'`;
+  const update = () => { $('.curl-pre', card).textContent = curl(); };
+  update();
+  tryPromptIn.addEventListener('input', update);
+  $('.copy-btn', card).addEventListener('click', e => copyText(curl(), e.currentTarget));
+  $('.run-btn', card).addEventListener('click', async () => {
+    setRunningMeta(model, false);
+    $$('.result-tab').forEach(b => b.classList.toggle('active', b.dataset.rt === 'content'));
+    const t0 = performance.now();
+    try {
+      const res = await fetch('/v1/embeddings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body()) });
+      const raw = await res.text();
+      setDoneMeta(model, false, res.status, Math.round(performance.now() - t0));
+      let content = raw;
+      try {
+        const vec = JSON.parse(raw)?.data?.[0]?.embedding;
+        if (Array.isArray(vec)) content = `${vec.length}-dimension vector\n\n[${vec.slice(0, 8).map(v => v.toFixed(4)).join(', ')}, …]`;
+      } catch (_) { /* keep raw */ }
+      lastResult = { content, raw, curl: curl() };
+    } catch (e) {
+      setDoneMeta(model, false, 0, Math.round(performance.now() - t0));
+      lastResult = { content: e.message, raw: e.message, curl: curl() };
+    }
+    renderResultBody('content');
+  });
+  return card;
+}
+
 function renderTryIt() {
   // Slugs: every (provider.prefix + model) pair from configured providers
   slugsHost.innerHTML = '';
@@ -1427,6 +1471,7 @@ function renderTryIt() {
   if (localModelsConfig && localModelsConfig.enabled) {
     const prefix = localModelsConfig.prefix || 'local/';
     for (const m of (localModelsConfig.models || [])) {
+      if (m.embedding) continue;
       slugCount++;
       slugsHost.appendChild(exampleCard(prefix + m.id, 'local'));
     }
@@ -1441,7 +1486,7 @@ function renderTryIt() {
   if (audioCard && audioHost) {
     const lmc = localModelsConfig || {};
     const modelKey = (lmc.models || []).map(m => m.id).join(',');
-    const wantKey = `${!!lmc.piper_enabled}|${!!lmc.whisper_enabled}|${lmc.piper_model || ''}|${(lmc.piper_voices || []).join(',')}|${modelKey}|${providers.length}|${aliases.length}`;
+    const wantKey = `${!!lmc.piper_enabled}|${!!lmc.whisper_enabled}|${lmc.embeddings_enabled ? lmc.embeddings_model : ''}|${lmc.piper_model || ''}|${(lmc.piper_voices || []).join(',')}|${modelKey}|${providers.length}|${aliases.length}`;
     if (audioHost.dataset.built !== wantKey) {
       audioHost.dataset.built = wantKey;
       audioHost.innerHTML = '';
@@ -1449,6 +1494,7 @@ function renderTryIt() {
       if (lmc.piper_enabled)   { audioHost.appendChild(ttsExampleCard()); audioCount++; }
       if (lmc.piper_enabled)   { audioHost.appendChild(realtimeExampleCard()); audioCount++; }
       if (lmc.whisper_enabled) { audioHost.appendChild(sttExampleCard()); audioCount++; }
+      if (lmc.embeddings_enabled && lmc.embeddings_model) { audioHost.appendChild(embeddingsExampleCard(lmc.embeddings_model)); audioCount++; }
       document.getElementById('tryit-audio-count').textContent = audioCount;
       audioCard.hidden = audioCount === 0;
     }

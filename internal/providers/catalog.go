@@ -233,3 +233,21 @@ func CatalogSettingsFor(modelID string) (ngl int, ctx int, ok bool) {
 	}
 	return 0, 0, false
 }
+
+// IsEmbeddingModel reports whether a scanned model id (filename stem) is an
+// embedding-only model: tagged so in the catalog, or named like one. Those
+// cannot serve chat completions; llama-server aborts if asked to.
+func IsEmbeddingModel(modelID string) bool {
+	for _, e := range catalog {
+		if strings.EqualFold(e.ModelID, modelID) {
+			for _, t := range e.Tags {
+				if t == "embedding" {
+					return true
+				}
+			}
+			return false
+		}
+	}
+	id := strings.ToLower(modelID)
+	return strings.Contains(id, "embed") || strings.HasPrefix(id, "bge-") || strings.Contains(id, "minilm")
+}

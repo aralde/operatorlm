@@ -117,9 +117,11 @@ func (e *LocalEngine) Models() []LocalModel {
 func (e *LocalEngine) ModelIDs() []string {
 	e.dataMu.RLock()
 	defer e.dataMu.RUnlock()
-	out := make([]string, len(e.models))
-	for i, m := range e.models {
-		out[i] = m.ID
+	out := make([]string, 0, len(e.models))
+	for _, m := range e.models {
+		if !m.Embedding {
+			out = append(out, m.ID)
+		}
 	}
 	return out
 }
@@ -144,6 +146,9 @@ func (e *LocalEngine) EnsureRunning(ctx context.Context, modelID string) (string
 	e.dataMu.RUnlock()
 	if !ok {
 		return "", fmt.Errorf("local model %q not found under %q (run a rescan if you just added it)", modelID, cfg.ModelsDir)
+	}
+	if m.Embedding {
+		return "", fmt.Errorf("%q is an embedding model: call /v1/embeddings with model %q instead of chat", modelID, modelID)
 	}
 
 	e.procMu.Lock()
