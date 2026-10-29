@@ -39,7 +39,7 @@
         </div>
         <div>
           <div class="brand-name">OperatorLM</div>
-          <div class="brand-sub" id="brand-status">● running</div>
+          <div class="brand-sub" id="brand-status">running</div>
         </div>
       </div>
 
@@ -108,6 +108,7 @@
       <section class="tab-pane active" data-pane="providers">
         <header class="pane-head">
           <div>
+            <span class="kicker">01 · Routing</span>
             <h1>Providers</h1>
             <p class="muted">Upstream LLM services this proxy can route to. Each provider has a default API key and an optional whitelist of models.</p>
           </div>
@@ -119,7 +120,7 @@
             <span class="badge" id="providers-count">0</span>
           </div>
           <div id="providers-empty" class="empty" hidden>
-            <div class="empty-icon">⌁</div>
+            <div class="empty-icon" aria-hidden="true">⌁</div>
             <p>No providers yet. Add your first one below to start routing requests.</p>
           </div>
           <div class="table-wrap">
@@ -184,7 +185,7 @@
             <div class="grid-2" id="antigravity-project-field" hidden>
               <div class="field">
                 <label>Project Workspace <span class="help-pop" data-help="Choose the active Antigravity workspace to associate with this provider. Fallback matches current directory or last active session.">?</span></label>
-                <input type="text" id="antigravity-project-search" placeholder="🔍 Search workspace path..." style="margin-bottom: 0.5rem;" />
+                <input type="text" id="antigravity-project-search" class="field-search" placeholder="Search workspace path…" />
                 <select name="project_id" id="antigravity-project-select">
                   <option value="">-- Auto-detect (recommended) --</option>
                 </select>
@@ -215,8 +216,8 @@
             </div>
 
             <div id="chatgpt-block" hidden class="models-block">
-              <p style="margin-top:0;padding:.6rem .8rem;border:1px solid #c97a00;border-radius:6px;background:rgba(201,122,0,.08);font-size:.92em">
-                <strong>&#9888; Unofficial integration.</strong>
+              <p class="notice">
+                <strong>Unofficial integration.</strong>
                 This provider reuses the public OAuth <code>client_id</code> from OpenAI's
                 official Codex CLI. It is <strong>not endorsed by OpenAI</strong> and may
                 be considered a Terms-of-Service violation. OpenAI can rotate or revoke
@@ -258,6 +259,7 @@
       <section class="tab-pane" data-pane="keys">
         <header class="pane-head">
           <div>
+            <span class="kicker">02 · Credentials</span>
             <h1>API keys</h1>
             <p class="muted">Each provider can have multiple key slots. Aliases reference a specific slot, allowing fan-out across rate-limited keys of the same vendor.</p>
           </div>
@@ -290,7 +292,7 @@
         <div class="card">
           <div class="card-head"><h2>All keys</h2></div>
           <div id="keys-empty" class="empty" hidden>
-            <div class="empty-icon">⌁</div>
+            <div class="empty-icon" aria-hidden="true">⌁</div>
             <p>No additional key slots. Every provider already has its default key.</p>
           </div>
           <div class="table-wrap">
@@ -306,6 +308,7 @@
       <section class="tab-pane" data-pane="aliases">
         <header class="pane-head">
           <div>
+            <span class="kicker">03 · Fan-out</span>
             <h1>Aliases</h1>
             <p class="muted">Virtual model names that fan out across multiple real targets. Useful for cross-provider fallback, key rotation, and rate-limit pooling — like LiteLLM's <code>model_list</code>.</p>
           </div>
@@ -327,7 +330,7 @@
             <span class="badge" id="aliases-count">0</span>
           </div>
           <div id="aliases-empty" class="empty" hidden>
-            <div class="empty-icon">⌁</div>
+            <div class="empty-icon" aria-hidden="true">⌁</div>
             <p>No aliases yet. Add one below to combine multiple providers under a single virtual model name.</p>
           </div>
           <div class="table-wrap">
@@ -379,6 +382,7 @@
       <section class="tab-pane" data-pane="tryit">
         <header class="pane-head">
           <div>
+            <span class="kicker">04 · Playground</span>
             <h1>Try it</h1>
             <p class="muted">Run any configured model or alias instantly. Pick a sample prompt, hit <em>Run</em>, and watch the response stream in on the right.</p>
           </div>
@@ -404,7 +408,7 @@
                 <span class="badge" id="tryit-slugs-count">0</span>
               </div>
               <div id="tryit-slugs-empty" class="empty" hidden>
-                <div class="empty-icon">⌁</div>
+                <div class="empty-icon" aria-hidden="true">⌁</div>
                 <p>No models exposed via slug. Add models in the <em>Providers</em> tab.</p>
               </div>
               <div id="tryit-slugs"></div>
@@ -424,7 +428,7 @@
                 <span class="badge" id="tryit-aliases-count">0</span>
               </div>
               <div id="tryit-aliases-empty" class="empty" hidden>
-                <div class="empty-icon">⌁</div>
+                <div class="empty-icon" aria-hidden="true">⌁</div>
                 <p>No aliases configured. Create one in the <em>Aliases</em> tab to see it here.</p>
               </div>
               <div id="tryit-aliases"></div>
@@ -462,6 +466,7 @@
       <section class="tab-pane" data-pane="reliability">
         <header class="pane-head">
           <div>
+            <span class="kicker">05 · Runtime</span>
             <h1>Reliability</h1>
             <p class="muted">Retry, circuit breaker, timeouts and fallback. These settings make the proxy behave like a production-grade gateway — transient upstream failures get retried with backoff, repeated failures trip a circuit, and a global fallback alias rescues exhausted requests.</p>
           </div>
@@ -499,7 +504,7 @@
             </div>
 
             <h3>Circuit breaker</h3>
-            <div class="grid-3">
+            <div class="grid-4">
               <div class="field">
                 <label>Open after N fails <span class="help-pop" data-help="Consecutive retryable failures before the breaker trips closed → open. While open, the target is skipped until cooldown elapses; one half-open probe then decides recovery.">?</span></label>
                 <input name="open_after_failures" type="number" min="1" placeholder="3" />
@@ -519,7 +524,7 @@
             </div>
 
             <h3>Timeouts</h3>
-            <div class="grid-3">
+            <div class="grid-4">
               <div class="field">
                 <label>Connect (ms) <span class="help-pop" data-help="TCP/TLS handshake.">?</span></label>
                 <input name="connect_timeout_ms" type="number" min="0" placeholder="5000" />
@@ -559,7 +564,7 @@
             </div>
           </div>
           <div id="health-empty" class="empty" hidden>
-            <div class="empty-icon">⌁</div>
+            <div class="empty-icon" aria-hidden="true">⌁</div>
             <p>No targets recorded yet. Health entries appear after the first request to each target.</p>
           </div>
           <div class="table-wrap">
@@ -584,7 +589,7 @@
             <h2>Recent requests (Last 20)</h2>
           </div>
           <div id="recent-empty" class="empty">
-            <div class="empty-icon">⌁</div>
+            <div class="empty-icon" aria-hidden="true">⌁</div>
             <p>No requests recorded yet. Recent requests will appear after they are made.</p>
           </div>
           <div class="table-wrap" id="recent-table-wrap" hidden>
@@ -609,6 +614,7 @@
       <section class="tab-pane" data-pane="audit">
         <header class="pane-head">
           <div>
+            <span class="kicker">06 · Observability</span>
             <h1>Audit log</h1>
             <p class="muted">Asynchronous NDJSON record of every request. A dedicated writer goroutine handles disk I/O, so the proxy never blocks on logging.</p>
           </div>
@@ -679,6 +685,7 @@
       <section class="tab-pane" data-pane="localauth">
         <header class="pane-head">
           <div>
+            <span class="kicker">07 · Access</span>
             <h1>Local API key</h1>
             <p class="muted">Optional. Require clients to send <code>Authorization: Bearer &lt;key&gt;</code> on <code>/v1/*</code> requests. Affects only the client → proxy hop — upstream provider keys are untouched. <code>/admin/*</code> still relies on localhost-only binding.</p>
           </div>
@@ -713,6 +720,7 @@
       <section class="tab-pane" data-pane="localmodels">
         <header class="pane-head">
           <div>
+            <span class="kicker">08 · Compute</span>
             <h1>Local models</h1>
             <p class="muted">Run GGUF models on this machine with no external daemon. operatorlm scans a folder for <code>*.gguf</code> files and, on demand, spawns <code>llama-server</code> (llama.cpp) loading the requested model, then routes <code>&lt;prefix&gt;&lt;model&gt;</code> to it. Swapping models stops and restarts the engine automatically.</p>
           </div>
@@ -725,7 +733,7 @@
           </div>
           <p class="muted small">Tuned for a ~4 GB GPU (Q4_K_M). One click downloads the model (and its vision projector when applicable) into your models folder with sensible defaults. Sizes are large — downloads run in the background.</p>
           <div id="catalog-empty" class="empty" hidden>
-            <div class="empty-icon">⌁</div>
+            <div class="empty-icon" aria-hidden="true">⌁</div>
             <p>Set a models folder below so downloads have a destination.</p>
           </div>
           <div id="catalog-cards" class="catalog-grid"></div>
@@ -779,7 +787,7 @@
             </div>
 
             <!-- Whisper (STT) Settings -->
-            <div style="margin-top: 20px; border-top: 1px solid var(--border); padding-top: 15px;">
+            <div class="subgroup">
               <h3>Speech-to-Text (whisper.cpp)</h3>
               <div class="field" style="margin-top: 10px;">
                 <label class="checkbox">
@@ -805,7 +813,7 @@
             </div>
 
             <!-- Piper (TTS) Settings -->
-            <div style="margin-top: 20px; border-top: 1px solid var(--border); padding-top: 15px; margin-bottom: 15px;">
+            <div class="subgroup">
               <h3>Text-to-Speech (Piper)</h3>
               <div class="field" style="margin-top: 10px;">
                 <label class="checkbox">
@@ -830,7 +838,7 @@
               </div>
               <div class="field">
                 <label>Download more voices <span class="help-pop" data-help="Official Piper voice catalog: pick a language and regional variant, then download it into the models folder. Use the downloaded voice per request via the OpenAI `voice` field, or set it as the default above.">?</span></label>
-                <div style="display:flex; gap:.5rem; align-items:center;">
+                <div class="inline-row">
                   <select id="piper-voice-select" style="flex:1; min-width:0;">
                     <option value="">Loading voice catalog…</option>
                   </select>
@@ -841,7 +849,7 @@
             </div>
 
             <!-- Embeddings Settings -->
-            <div style="margin-top: 20px; border-top: 1px solid var(--border); padding-top: 15px; margin-bottom: 15px;">
+            <div class="subgroup">
               <h3>Embeddings (llama.cpp)</h3>
               <div class="field" style="margin-top: 10px;">
                 <label class="checkbox">
@@ -885,7 +893,7 @@
             <span class="badge" id="localmodels-count">0</span>
           </div>
           <div id="localmodels-empty" class="empty" hidden>
-            <div class="empty-icon">◷</div>
+            <div class="empty-icon" aria-hidden="true">◷</div>
             <p>No GGUF files found. Set a models folder above and click <em>Rescan folder</em>.</p>
           </div>
           <div class="table-wrap">
@@ -903,6 +911,7 @@
       <section class="tab-pane" data-pane="help">
         <header class="pane-head">
           <div>
+            <span class="kicker">09 · Reference</span>
             <h1>Help &amp; usage</h1>
             <p class="muted">Quickstart, examples, and where things live.</p>
           </div>
@@ -1003,7 +1012,7 @@
       <div class="grid-2" id="edit-antigravity-project-field" hidden>
         <div class="field">
           <label>Project Workspace <span class="help-pop" data-help="Choose the active Antigravity workspace to associate with this provider. Fallback matches current directory or last active session.">?</span></label>
-          <input type="text" id="edit-project-search" placeholder="🔍 Search workspace path..." style="margin-bottom: 0.5rem;" />
+          <input type="text" id="edit-project-search" class="field-search" placeholder="Search workspace path…" />
           <select id="edit-project-id">
             <option value="">-- Auto-detect (recommended) --</option>
           </select>

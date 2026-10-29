@@ -264,7 +264,7 @@ probeBtn.addEventListener('click', async () => {
     }
     modelsBlock.hidden = false;
     saveBtn.disabled = false;
-    probeStatus.textContent = `${models.length} models found ✓`;
+    probeStatus.textContent = `${models.length} models found`;
     probeStatus.className = 'status ok';
   } catch (e) {
     probeStatus.textContent = 'Invalid: ' + e.message;
@@ -358,7 +358,7 @@ chatgptLoginBtn.addEventListener('click', async () => {
       st = await api('GET', '/admin/auth/chatgpt/status');
     } catch { continue; }
     if (st.status === 'success') {
-      chatgptStatus.textContent = 'Logged in ✓';
+      chatgptStatus.textContent = 'Logged in';
       chatgptStatus.className = 'status ok';
       const cust = document.getElementById('chatgpt-models-custom');
       if (cust) cust.value = '';
@@ -476,7 +476,7 @@ editProbeBtn.addEventListener('click', async () => {
       return;
     }
     renderModelOptions(editModelsSel, models, currentlySelected);
-    editProbeStatus.textContent = `${models.length} models found ✓`;
+    editProbeStatus.textContent = `${models.length} models found`;
     editProbeStatus.className = 'status ok';
   } catch (e) {
     editProbeStatus.textContent = 'Failed: ' + e.message;
@@ -722,7 +722,7 @@ async function copyCurl(model, stream, btn) {
   try {
     await navigator.clipboard.writeText(cmd);
     const original = btn.textContent;
-    btn.textContent = 'Copied ✓';
+    btn.textContent = 'Copied';
     setTimeout(() => { btn.textContent = original; }, 1400);
   } catch (e) {
     toast('Clipboard failed: ' + e.message, 'error');
@@ -827,7 +827,7 @@ function renderHelpExamples(baseURL) {
       try {
         await navigator.clipboard.writeText(body.textContent);
         const original = copyBtn.textContent;
-        copyBtn.textContent = 'Copied ✓';
+        copyBtn.textContent = 'Copied';
         setTimeout(() => { copyBtn.textContent = original; }, 1400);
       } catch (e) {
         toast('Clipboard failed: ' + e.message, 'error');
@@ -1044,7 +1044,7 @@ async function copyText(text, btn) {
   try {
     await navigator.clipboard.writeText(text);
     const original = btn.textContent;
-    btn.textContent = 'Copied ✓';
+    btn.textContent = 'Copied';
     setTimeout(() => { btn.textContent = original; }, 1400);
   } catch (e) {
     toast('Clipboard failed: ' + e.message, 'error');
@@ -1806,7 +1806,7 @@ function renderLocalModels(st) {
     const running = st.running && st.current === m.id;
     const tr = document.createElement('tr');
     tr.innerHTML =
-      `<td><code>${escHtml(fullId)}</code>${running ? ' <span class="tag" style="color:var(--success)">● loaded</span>' : ''}</td>` +
+      `<td><code>${escHtml(fullId)}</code>${running ? ' <span class="tag tag-ok">loaded</span>' : ''}</td>` +
       `<td class="muted small">${fmtBytes(m.size_bytes)}</td>` +
       `<td class="muted small" title="${escHtml(m.path)}">${escHtml(m.path)}</td>` +
       `<td><button type="button" class="btn-secondary btn-sm" data-copy="${escHtml(fullId)}">Copy id</button></td>`;
@@ -1889,7 +1889,7 @@ function applyLocalModelsStatus(st) {
       localModelsDownloadServer.disabled = false;
       localModelsDownloadServer.textContent = st.llama_server_installed ? 'Re-download llama-server' : 'Download llama-server';
       localModelsDownloadServer.style.display = 'inline-block';
-      serverDownloadStatus.textContent = st.llama_server_installed ? 'llama-server is ready ✓' : 'llama-server not found';
+      serverDownloadStatus.textContent = st.llama_server_installed ? 'llama-server is ready' : 'llama-server not found';
       serverDownloadStatus.style.color = st.llama_server_installed ? 'var(--success)' : 'var(--text-mute)';
     }
   }
@@ -1982,20 +1982,20 @@ function renderCatalog(data) {
 
     let action;
     if (it.installed && !downloading) {
-      action = `<span class="tag" style="color:var(--success)">● installed</span>`;
+      action = `<span class="tag tag-ok">installed</span>`;
     } else if (downloading) {
       action = `<div class="dl-progress"><div class="dl-bar" style="width:${pct}%"></div></div>
                 <span class="muted xsmall">${pct}% · ${fmtBytes(dl.downloaded)} / ${fmtBytes(dl.total)}</span>`;
     } else if (dl.status === 'error') {
       action = `<button class="btn-secondary btn-sm" data-dl="${escHtml(it.id)}">Retry</button>
-                <span class="muted xsmall" style="color:var(--danger)">${escHtml(dl.error || 'failed')}</span>`;
+                <span class="muted xsmall text-danger">${escHtml(dl.error || 'failed')}</span>`;
     } else {
       action = `<button class="btn-primary btn-sm" data-dl="${escHtml(it.id)}" ${dir ? '' : 'disabled'}>Download · ${fmtBytes(total)}</button>`;
     }
 
     const chips = [it.backend === 'cpu' ? 'CPU' : 'GPU', ...(it.tags || [])]
       .map(t => `<span class="tag">${escHtml(t)}</span>`).join(' ');
-    const rec = it.recommended ? `<span class="tag" style="color:var(--accent)">★ recommended</span>` : '';
+    const rec = it.recommended ? `<span class="tag tag-accent">recommended</span>` : '';
 
     return `<div class="catalog-card">
       <div class="cc-head"><strong>${escHtml(it.name)}</strong>${rec}</div>
@@ -2147,7 +2147,7 @@ async function loadPiperVoices(force = false) {
       const o = document.createElement('option');
       o.value = v.key;
       const size  = v.size_bytes ? ` · ${fmtBytes(v.size_bytes)}` : '';
-      const state = v.installed ? ' · installed ✓'
+      const state = v.installed ? ' · installed'
                   : (v.download && v.download.status === 'downloading' ? ' · downloading…' : '');
       o.textContent = `${v.language} · ${v.speaker} (${v.quality})${size}${state}`;
       groups.get(label).appendChild(o);
@@ -2194,7 +2194,7 @@ function pollPiperVoice(key) {
         piperVoiceStatus.textContent = `Error: ${dl.error}`;
         piperVoiceStatus.style.color = 'var(--danger)';
       } else {
-        piperVoiceStatus.textContent = `${key} installed ✓ — pick it in Try it, or set it as the default voice above`;
+        piperVoiceStatus.textContent = `${key} installed — pick it in Try it, or set it as the default voice above`;
         piperVoiceStatus.style.color = 'var(--success)';
         loadPiperVoices(true);
         loadLocalModels(); // refreshes piper_voices → Try it dropdown
