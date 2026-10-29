@@ -31,7 +31,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/getlantern/systray"
 	"github.com/minio/selfupdate"
 )
 
@@ -233,12 +232,16 @@ func (m *Manager) checkLatest(ctx context.Context) (*releaseInfo, error) {
 }
 
 // pickAssets finds the binary asset for this OS/arch and the checksums asset.
-// Convention: assets are named `operatorlm-<os>-<arch>` or
-// `OperatorLM-<os>-<arch>.exe` on Windows. Matching is case-insensitive and
-// requires both the OS and arch tokens to appear in the asset name.
+// Convention: assets are named `OperatorLM-<os>-<arch>[-headless]`, plus
+// `.exe` on Windows; headless builds (-tags notray) use the -headless variant.
+// Matching is case-insensitive and exact, so variants never shadow each other.
 func pickAssets(rel *releaseInfo) (binary, checksums *releaseAsset, err error) {
 	osTok := strings.ToLower(runtime.GOOS)
 	archTok := strings.ToLower(runtime.GOARCH)
+	want := "operatorlm-" + osTok + "-" + archTok + variantSuffix
+	if runtime.GOOS == "windows" {
+		want += ".exe"
+	}
 
 	for i := range rel.Assets {
 		a := &rel.Assets[i]
@@ -247,16 +250,12 @@ func pickAssets(rel *releaseInfo) (binary, checksums *releaseAsset, err error) {
 			checksums = a
 			continue
 		}
-		if !strings.Contains(name, osTok) || !strings.Contains(name, archTok) {
-			continue
+		if name == want {
+			binary = a
 		}
-		if runtime.GOOS == "windows" && !strings.HasSuffix(name, ".exe") {
-			continue
-		}
-		binary = a
 	}
 	if binary == nil {
-		return nil, nil, fmt.Errorf("no release asset matches %s/%s", osTok, archTok)
+		return nil, nil, fmt.Errorf("no release asset named %s", want)
 	}
 	if checksums == nil {
 		return nil, nil, fmt.Errorf("release is missing %s", checksumsAsset)
@@ -380,7 +379,7 @@ func applyBinary(path string) error {
 // restart re-execs the currently running binary (which selfupdate has already
 // replaced on disk) and then quits the current process. The new process
 // inherits stdio; on Windows the parent's tray icon disappears the moment
-// systray.Quit() runs and the new process draws its own.
+// OnQuit runs and the new process draws its own.
 func restart() error {
 	exe, err := os.Executable()
 	if err != nil {
@@ -397,14 +396,18 @@ func restart() error {
 	// Give the new process a beat to initialise before we tear down the tray.
 	go func() {
 		time.Sleep(500 * time.Millisecond)
-		systray.Quit()
-		// Belt and braces: if systray.Quit() doesn't unblock systray.Run()
+		OnQuit()
+		// Belt and braces: if OnQuit doesn't unblock systray.Run()
 		// quickly (e.g. headless mode), force exit.
 		time.Sleep(2 * time.Second)
 		os.Exit(0)
 	}()
 	return nil
 }
+
+// OnQuit tears down the UI before a self-update restart exits the process.
+// The tray build sets it to systray.Quit; headless builds keep the no-op.
+var OnQuit = func() {}
 
 // ---- semver comparison ----
 

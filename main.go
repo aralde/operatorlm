@@ -11,13 +11,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/getlantern/systray"
-
 	"github.com/aralde/operatorlm/internal/audit"
 	"github.com/aralde/operatorlm/internal/config"
 	"github.com/aralde/operatorlm/internal/providers"
 	"github.com/aralde/operatorlm/internal/server"
-	"github.com/aralde/operatorlm/internal/tray"
 	"github.com/aralde/operatorlm/internal/update"
 	"github.com/aralde/operatorlm/internal/version"
 )
@@ -104,24 +101,15 @@ func main() {
 
 	// Headless mode: skip the system tray entirely. Useful on Linux servers
 	// without an AppIndicator-capable desktop session, or for running under
-	// systemd/Docker.
-	if os.Getenv("OPERATORLM_NO_TRAY") != "" {
-		log.Printf("OPERATORLM_NO_TRAY set; running without system tray")
+	// systemd/Docker. Binaries built with -tags notray are always headless.
+	if !trayAvailable || os.Getenv("OPERATORLM_NO_TRAY") != "" {
+		log.Printf("running without system tray")
 		<-sigCh
 		shutdown()
 		return
 	}
 
-	go func() {
-		<-sigCh
-		shutdown()
-		systray.Quit()
-	}()
-
-	systray.Run(
-		func() { tray.OnReady(cfg, updMgr) },
-		func() { shutdown() },
-	)
+	runTray(cfg, updMgr, sigCh, shutdown)
 }
 
 func auditOptsFromConfig(a config.AuditConfig) audit.Options {
