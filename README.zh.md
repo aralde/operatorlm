@@ -31,6 +31,7 @@
 | macOS (Apple silicon) | `OperatorLM-darwin-arm64`          |
 | macOS (Intel)         | `OperatorLM-darwin-amd64`          |
 | Linux (x64)           | `OperatorLM-linux-amd64`           |
+| Linux (x64, headless) | `OperatorLM-linux-amd64-headless`  |
 
 > [!NOTE]
 > 在 macOS / Linux 上需要先给二进制加可执行权限: `chmod +x OperatorLM-*`。
@@ -40,11 +41,11 @@
 - **Windows**: 双击 `OperatorLM-windows-amd64.exe`,任务栏出现托盘图标(没有控制台窗口)。首次启动时 SmartScreen 可能提示 *"Windows 已保护你的电脑"*,点 **更多信息 → 仍要运行**(二进制未签名)。
 - **macOS desktop**: `./OperatorLM-darwin-*` —— 任务栏出现托盘图标。首次启动会被 Gatekeeper 拦截,在 Finder 里右键二进制 → **打开** → 在弹窗里再点一次 **打开**(只需一次)。
 - **Linux desktop**: `./OperatorLM-linux-amd64` —— 任务栏出现托盘图标。
-- **Linux headless**: `OPERATORLM_NO_TRAY=1 ./OperatorLM-linux-amd64`。
+- **Linux headless**: `./OperatorLM-linux-amd64-headless`。静态二进制,没有托盘,因此不需要 GTK 或 AppIndicator 库。普通二进制也可以用 `OPERATORLM_NO_TRAY=1` 无托盘运行,但仍然需要安装这些库。
 
 ### 3. 打开 admin UI
 
-浏览器打开 **<http://127.0.0.1:11434/admin/>** → 添加一个 provider → 粘贴 API key → 在 **Try It** 标签页发一个测试请求。
+浏览器打开 **<http://127.0.0.1:11434/>** → 添加一个 provider → 粘贴 API key → 在 **Try It** 标签页发一个测试请求。
 
 ### 4. 把你的工具指向它
 
@@ -84,16 +85,16 @@
 - 🔀 **多账号 aliasing** —— 把 3 个 OpenAI key、2 个 OpenRouter 账号和一个免费的 Groq 兜底,统一放在一个模型名背后。OperatorLM 会依次尝试,直到有一个成功为止。
 - 🛡️ **生产级 failover** —— 每个 target 都有 **circuit breaker**(3 状态),retry 使用 exponential backoff + jitter,**RPM limiter** 使用 sliding window。对 429 / 5xx / 网络错误使用不同的 cooldown。
 - 🔐 **磁盘上零密钥** —— API key 存放在 **Windows Credential Manager / macOS Keychain / Linux Secret Service** 中。TOML 文件里只放 *引用*,永远不放密钥本身。
-- 🖥️ **内嵌的实时 admin UI** —— 在 `http://127.0.0.1:11434/admin/` 中管理 providers、keys、aliases、reliability 配置,并实时观察 audit log 流。零安装:通过 `go:embed` 内嵌在二进制中。
+- 🖥️ **内嵌的实时 admin UI** —— 在 `http://127.0.0.1:11434/` 中管理 providers、keys、aliases、reliability 配置,并实时观察 audit log 流。零安装:通过 `go:embed` 内嵌在二进制中。
 - 🧪 **JSONL 格式的 audit log** —— 记录每个请求:模型、attempt、upstream URL、status、耗时。`Authorization` 头默认脱敏。Writer 非阻塞。
 - 🤖 **ChatGPT Plus/Pro 作为后端** —— 通过 OAuth (PKCE) 登录一次,你的 Plus/Pro 配额就接入了和你的工具已经在用的同一个 OpenAI 兼容 API。*(实验性 —— 见下面的免责声明。)*
 - 🖥️ **在本地运行模型(内置 llama.cpp)** —— 把它指向一个装满 `*.gguf` 文件的目录,OperatorLM 会按需启动 `llama-server`,无需单独的守护进程。**目录(catalog)**支持一键下载精选的 chat、视觉和 embedding 模型。一个*同时*能路由到云端的 Ollama 替代品。
 - 🧬 **本地 embeddings** —— `/v1/embeddings` 由本地 GGUF 模型(Qwen3-Embedding、EmbeddingGemma)在一个独立 sidecar 上提供 —— 非常适合离线 RAG / 语义搜索。云端 embeddings(OpenAI、Azure、Gemini)也走同一个 endpoint。
 - 🎙️ **本地语音(STT + TTS)** —— 用 **Whisper** 转写(`/v1/audio/transcriptions`),用 **Piper** 合成(`/v1/audio/speech`),或**实时把聊天流式转成语音**(`/v1/audio/speech/realtime`)。语音目录支持一键下载。
 - 🟣 **兼容 Anthropic** —— 原生 `/v1/messages` endpoint,外加一个在 OpenAI↔Anthropic 之间双向转换的 `anthropic` provider,因此讲 Claude API 的工具(比如 Claude Code)也能指向 OperatorLM。
-- ⬆️ **OTA 自更新** —— 从托盘点 "Check for updates" 会下载匹配你 OS 的 release asset,校验其 SHA-256,原地替换二进制并重新执行。
+- ⬆️ **OTA 自更新** —— 从托盘点 "Check for updates" 会下载匹配你 OS 和变体(托盘或 headless)的 release asset,校验其 SHA-256,原地替换二进制并重新执行。
 - 🪶 **一个小巧的二进制,idle 时占用极低 RAM** —— 原生 Go。无 `node_modules`、无 Python、无 Docker。毫秒级启动。
-- 🛰️ **Headless 模式** —— `OPERATORLM_NO_TRAY=1`,可以在没有桌面会话的 Linux 上运行。
+- 🛰️ **Headless 构建** —— `OperatorLM-linux-amd64-headless` 是不带托盘、不依赖 GTK 的静态二进制,适合服务器和容器。托盘版也可以用 `OPERATORLM_NO_TRAY=1` 跳过托盘。
 - 🪟 **Windows 上无控制台闪窗** —— 编译时带 `-H=windowsgui`。它是一个真正的 tray app。
 
 ---
@@ -107,7 +108,7 @@
 - **完全离线 / 隔离网络(air-gapped)** —— 在完全没有配置任何云 provider 的情况下,用本地 GGUF 模型跑 chat、视觉、embeddings 和语音;之后只要加一个 key,同一个二进制立刻就能扇出到云端。
 - **本地 RAG / 语义搜索** —— 用本地模型(Qwen3-Embedding / EmbeddingGemma)通过 `/v1/embeddings` 提供 embeddings,让你的文档留在本机。
 - **开发机或共享工作站上的可审计 LLM 流量** —— 每个请求都落入脱敏后的 JSONL,key 始终留在 OS keyring 中(从不落盘),admin UI 仅监听 loopback、带 host-header 校验和可选的本地 API key。
-- **Headless 自托管网关** —— 在 Linux VM / NAS / 家庭服务器上用 `OPERATORLM_NO_TRAY=1` 启动,从你的笔记本通过 WireGuard 或 Tailscale 访问 `127.0.0.1:11434`,把所有 key 和 audit log 集中在一处。
+- **Headless 自托管网关** —— 在 Linux VM / NAS / 家庭服务器上运行 headless 二进制,从你的笔记本通过 WireGuard 或 Tailscale 访问 `127.0.0.1:11434`,把所有 key 和 audit log 集中在一处。
 
 ---
 
@@ -272,7 +273,7 @@ OperatorLM 在 `POST /v1/messages` 上原生支持 **Anthropic Messages API**,`a
 
 ## ⬆️ 保持更新
 
-OperatorLM 通过 GitHub Releases 自更新。从托盘菜单选 **Check for updates**(或 `POST /admin/update/check`):它会拉取最新 release,下载匹配你 OS/arch 的 asset 以及 `checksums.txt`,**校验 SHA-256**,原地替换正在运行的二进制,然后重新执行到新版本。dev 构建(没有内嵌版本号)会被跳过。
+OperatorLM 通过 GitHub Releases 自更新。从托盘菜单选 **Check for updates**(或 `POST /admin/update/check`):它会拉取最新 release,下载匹配你 OS/arch 和变体(托盘或 headless)的 asset 以及 `checksums.txt`,**校验 SHA-256**,原地替换正在运行的二进制,然后重新执行到新版本。dev 构建(没有内嵌版本号)会被跳过。
 
 ---
 
@@ -311,7 +312,7 @@ OperatorLM 通过 GitHub Releases 自更新。从托盘菜单选 **Check for upd
 ```
 
 > [!NOTE]
-> 需要 CGO(用于 system tray + OS keyring)。
+> system tray 需要 CGO。headless 构建(`NOTRAY=1`)不需要。
 > **Linux**: 安装 `gcc libgtk-3-dev libayatana-appindicator3-dev`(Debian/Ubuntu),或 `build.sh` 中列出的 Fedora/RHEL 等价包。
 
 ### 2. 运行
@@ -323,11 +324,12 @@ OperatorLM 通过 GitHub Releases 自更新。从托盘菜单选 **Check for upd
 # Linux / macOS (desktop)
 ./OperatorLM
 
-# Linux(headless 服务器,无 tray)
-OPERATORLM_NO_TRAY=1 ./OperatorLM
+# Linux(headless 服务器,无 tray,无 CGO/GTK)
+NOTRAY=1 ./build.sh
+./operatorlm
 ```
 
-任务栏出现托盘图标。Admin UI 位于 **<http://127.0.0.1:11434/admin/>**。
+任务栏出现托盘图标。Admin UI 位于 **<http://127.0.0.1:11434/>**。
 
 ### 3. 配置(admin UI)
 

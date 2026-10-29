@@ -31,6 +31,7 @@ Vá até a [página de Releases](https://github.com/aralde/operatorlm/releases/l
 | macOS (Apple silicon) | `OperatorLM-darwin-arm64`          |
 | macOS (Intel)         | `OperatorLM-darwin-amd64`          |
 | Linux (x64)           | `OperatorLM-linux-amd64`           |
+| Linux (x64, headless) | `OperatorLM-linux-amd64-headless`  |
 
 > [!NOTE]
 > No macOS/Linux, dê permissão de execução: `chmod +x OperatorLM-*`.
@@ -40,11 +41,11 @@ Vá até a [página de Releases](https://github.com/aralde/operatorlm/releases/l
 - **Windows**: duplo clique em `OperatorLM-windows-amd64.exe`. Aparece um ícone na bandeja (sem janela de console). Na primeira execução, o SmartScreen pode mostrar *"O Windows protegeu seu PC"* → clique em **Mais informações → Executar mesmo assim** (o binário não é assinado).
 - **macOS desktop**: `./OperatorLM-darwin-*` — aparece o ícone na bandeja. Na primeira execução, o Gatekeeper vai bloquear → clique com o botão direito no binário no Finder → **Abrir** → **Abrir** de novo no diálogo (só precisa fazer uma vez).
 - **Linux desktop**: `./OperatorLM-linux-amd64` — aparece o ícone na bandeja.
-- **Linux headless**: `OPERATORLM_NO_TRAY=1 ./OperatorLM-linux-amd64`.
+- **Linux headless**: `./OperatorLM-linux-amd64-headless`. Binário estático sem bandeja, então não precisa das bibliotecas GTK nem AppIndicator. O binário normal também roda sem bandeja com `OPERATORLM_NO_TRAY=1`, mas continua precisando dessas bibliotecas.
 
 ### 3. Abrir o admin UI
 
-Acesse **<http://127.0.0.1:11434/admin/>** → adicione um provider → cole uma API key → dispare um request de teste pela aba **Try It**.
+Acesse **<http://127.0.0.1:11434/>** → adicione um provider → cole uma API key → dispare um request de teste pela aba **Try It**.
 
 ### 4. Aponte suas ferramentas para o proxy
 
@@ -84,16 +85,16 @@ Qualquer cliente compatível com OpenAI funciona — defina a base URL como `htt
 - 🔀 **Aliasing multi-conta** — empilhe 3 API keys da OpenAI, 2 contas do OpenRouter, e um Groq grátis como backup atrás de um único nome de modelo. O OperatorLM percorre a lista até uma funcionar.
 - 🛡️ **Failover de nível produção** — **circuit breaker** por target (3 estados), retries com exponential backoff + jitter, **RPM limiter** com sliding window. Cooldowns diferentes para 429 / 5xx / erros de rede.
 - 🔐 **Zero segredos em disco** — As API keys ficam no **Windows Credential Manager / macOS Keychain / Linux Secret Service**. O arquivo TOML só guarda *referências*, nunca as keys.
-- 🖥️ **Admin UI embutida e ao vivo** — Gerencie providers, keys, aliases, ajustes de reliability, e veja o audit log em streaming — tudo a partir de `http://127.0.0.1:11434/admin/`. Zero instalação: está embutida no binário com `go:embed`.
+- 🖥️ **Admin UI embutida e ao vivo** — Gerencie providers, keys, aliases, ajustes de reliability, e veja o audit log em streaming — tudo a partir de `http://127.0.0.1:11434/`. Zero instalação: está embutida no binário com `go:embed`.
 - 🧪 **Audit log em JSONL** — Cada request: modelo, attempt, URL upstream, status, duração. Headers `Authorization` redatados por padrão. Writer não-bloqueante.
 - 🤖 **ChatGPT Plus/Pro como backend** — Logue uma vez via OAuth (PKCE) e tenha a sua cota Plus/Pro plugada na mesma API compatível com OpenAI que as suas ferramentas já falam. *(Experimental — leia o disclaimer abaixo.)*
 - 🖥️ **Rode modelos localmente (llama.cpp embutido)** — Aponte para uma pasta de arquivos `*.gguf` e o OperatorLM sobe o `llama-server` sob demanda, sem daemon à parte. Um **catálogo** com downloads de um clique traz modelos de chat, visão e embeddings já curados. Um substituto do Ollama que *também* roteia para a nuvem.
 - 🧬 **Embeddings locais** — `/v1/embeddings` servido por um modelo GGUF local (Qwen3-Embedding, EmbeddingGemma) num sidecar dedicado — ótimo para RAG / busca semântica offline. Embeddings na nuvem (OpenAI, Azure, Gemini) funcionam pelo mesmo endpoint.
 - 🎙️ **Voz local (STT + TTS)** — Transcreva com **Whisper** (`/v1/audio/transcriptions`), sintetize com **Piper** (`/v1/audio/speech`), ou faça **chat-para-voz em tempo real** por streaming (`/v1/audio/speech/realtime`). Catálogo de vozes com downloads de um clique.
 - 🟣 **Compatível com Anthropic** — Um endpoint nativo `/v1/messages` mais um provider `anthropic` com tradução bidirecional OpenAI↔Anthropic, então ferramentas que falam a API do Claude (como o Claude Code) também podem apontar para o OperatorLM.
-- ⬆️ **Auto-update OTA** — "Check for updates" pela bandeja baixa o asset da release do seu OS, verifica o SHA-256, troca o binário no lugar e se re-executa.
+- ⬆️ **Auto-update OTA** — "Check for updates" pela bandeja baixa o asset da release do seu OS e variante (bandeja ou headless), verifica o SHA-256, troca o binário no lugar e se re-executa.
 - 🪶 **Um binário pequeno, pouca RAM em idle** — Go nativo. Sem `node_modules`, sem Python, sem Docker. Sobe em milissegundos.
-- 🛰️ **Modo headless** — `OPERATORLM_NO_TRAY=1` para rodar numa máquina Linux sem sessão de desktop.
+- 🛰️ **Build headless** — `OperatorLM-linux-amd64-headless` é um binário estático sem bandeja nem GTK, feito para servidores e containers. O build com bandeja também pode pulá-la com `OPERATORLM_NO_TRAY=1`.
 - 🪟 **Sem flash de console no Windows** — buildado com `-H=windowsgui`. É uma tray app de verdade.
 
 ---
@@ -107,7 +108,7 @@ Qualquer cliente compatível com OpenAI funciona — defina a base URL como `htt
 - **Totalmente offline / air-gapped** — rode modelos GGUF locais para chat, visão, embeddings e voz sem nenhum provider de nuvem configurado; o mesmo binário depois se espalha para a nuvem assim que você adiciona uma key.
 - **RAG / busca semântica local** — sirva embeddings a partir de um modelo local (Qwen3-Embedding / EmbeddingGemma) por `/v1/embeddings`, mantendo os seus documentos na máquina.
 - **Tráfego LLM auditável numa máquina de dev ou estação compartilhada** — todo request cai em JSONL redatado, as keys ficam no OS keyring (nunca em disco), e o admin UI é loopback-only com validação de host-header e uma API key local opcional.
-- **Gateway self-hosted em modo headless** — rode numa VM Linux / NAS / home server com `OPERATORLM_NO_TRAY=1`, alcance `127.0.0.1:11434` via WireGuard ou Tailscale do seu laptop, e centralize as suas keys e o audit log num único lugar.
+- **Gateway self-hosted em modo headless** — rode o binário headless numa VM Linux / NAS / home server, alcance `127.0.0.1:11434` via WireGuard ou Tailscale do seu laptop, e centralize as suas keys e o audit log num único lugar.
 
 ---
 
@@ -272,7 +273,7 @@ Se você aceita o risco: abra o admin UI, adicione um provider `chatgpt-codex`, 
 
 ## ⬆️ Mantendo atualizado
 
-O OperatorLM se auto-atualiza pelo GitHub Releases. Escolha **Check for updates** no menu da bandeja (ou `POST /admin/update/check`): ele busca a última release, baixa o asset do seu OS/arch mais o `checksums.txt`, **verifica o SHA-256**, troca o binário em execução no lugar e se re-executa na nova versão. Builds de dev (sem versão embutida) são pulados.
+O OperatorLM se auto-atualiza pelo GitHub Releases. Escolha **Check for updates** no menu da bandeja (ou `POST /admin/update/check`): ele busca a última release, baixa o asset do seu OS/arch e variante (bandeja ou headless) mais o `checksums.txt`, **verifica o SHA-256**, troca o binário em execução no lugar e se re-executa na nova versão. Builds de dev (sem versão embutida) são pulados.
 
 ---
 
@@ -311,7 +312,7 @@ O OperatorLM se auto-atualiza pelo GitHub Releases. Escolha **Check for updates*
 ```
 
 > [!NOTE]
-> CGO é necessário (para system tray + OS keyring).
+> CGO é necessário para o system tray. Builds headless (`NOTRAY=1`) não precisam dele.
 > **Linux**: instale `gcc libgtk-3-dev libayatana-appindicator3-dev` (Debian/Ubuntu) ou os equivalentes de Fedora/RHEL listados em `build.sh`.
 
 ### 2. Executar
@@ -323,11 +324,12 @@ O OperatorLM se auto-atualiza pelo GitHub Releases. Escolha **Check for updates*
 # Linux / macOS (desktop)
 ./OperatorLM
 
-# Linux (servidor headless, sem tray)
-OPERATORLM_NO_TRAY=1 ./OperatorLM
+# Linux (servidor headless, sem tray, sem CGO/GTK)
+NOTRAY=1 ./build.sh
+./operatorlm
 ```
 
-Aparece um ícone na bandeja. O admin UI fica em **<http://127.0.0.1:11434/admin/>**.
+Aparece um ícone na bandeja. O admin UI fica em **<http://127.0.0.1:11434/>**.
 
 ### 3. Configurar (admin UI)
 
