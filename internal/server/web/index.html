@@ -416,7 +416,7 @@
 
             <div class="card" id="tryit-audio-card" hidden>
               <div class="card-head">
-                <h2>Local audio</h2>
+                <h2>Local audio &amp; embeddings</h2>
                 <span class="badge" id="tryit-audio-count">0</span>
               </div>
               <div id="tryit-audio"></div>
@@ -722,26 +722,103 @@
           <div>
             <span class="kicker">08 · Compute</span>
             <h1>Local models</h1>
-            <p class="muted">Run GGUF models on this machine with no external daemon. operatorlm scans a folder for <code>*.gguf</code> files and, on demand, spawns <code>llama-server</code> (llama.cpp) loading the requested model, then routes <code>&lt;prefix&gt;&lt;model&gt;</code> to it. Swapping models stops and restarts the engine automatically.</p>
+            <p class="muted">Speech, transcription, embeddings and chat that run on this machine. Pick a voice or model and switch it on: OperatorLM downloads the engine and the model for you, with defaults that work out of the box.</p>
+          </div>
+          <button type="button" id="localmodels-advanced-open" class="btn-secondary">Advanced settings</button>
+        </header>
+
+        <div id="cap-grid" class="cap-grid"></div>
+      </section>
+
+      <!-- ============ HELP ============ -->
+      <section class="tab-pane" data-pane="help">
+        <header class="pane-head">
+          <div>
+            <span class="kicker">09 · Reference</span>
+            <h1>Help &amp; usage</h1>
+            <p class="muted">Quickstart, examples, and where things live.</p>
           </div>
         </header>
 
         <div class="card">
-          <div class="card-head">
-            <h2>Recommended models</h2>
-            <span class="badge">curated</span>
-          </div>
-          <p class="muted small">Tuned for a ~4 GB GPU (Q4_K_M). One click downloads the model (and its vision projector when applicable) into your models folder with sensible defaults. Sizes are large — downloads run in the background.</p>
-          <div id="catalog-empty" class="empty" hidden>
-            <div class="empty-icon" aria-hidden="true">⌁</div>
-            <p>Set a models folder below so downloads have a destination.</p>
-          </div>
-          <div id="catalog-cards" class="catalog-grid"></div>
+          <h2>Quickstart</h2>
+          <ol class="steps">
+            <li><strong>Add a provider</strong> in the <em>Providers</em> tab. Pick a type, paste an API key, click <em>Fetch models</em> to validate, select the models you want exposed, then save.</li>
+            <li><strong>(Optional) Add extra keys</strong> in the <em>API keys</em> tab — useful for vendors with per-key rate limits.</li>
+            <li><strong>(Optional) Create an alias</strong> in the <em>Aliases</em> tab to fan out across keys/providers with automatic fallback.</li>
+            <li><strong>Point your client</strong> (VS Code, Cursor, any OpenAI-compatible app) at <code id="help-base"></code>.</li>
+          </ol>
         </div>
 
         <div class="card">
+          <h2>Example requests</h2>
+
+          <div class="example-block" data-example="slug">
+            <h3>Direct slug</h3>
+            <div class="snippet-tabs">
+              <button type="button" class="snippet-tab active" data-lang="curl">cURL</button>
+              <button type="button" class="snippet-tab" data-lang="python">Python</button>
+              <button type="button" class="snippet-tab" data-lang="ts">TypeScript</button>
+              <button type="button" class="snippet-copy">Copy</button>
+            </div>
+            <pre class="snippet-body"></pre>
+          </div>
+
+          <div class="example-block" data-example="alias">
+            <h3>Through an alias</h3>
+            <div class="snippet-tabs">
+              <button type="button" class="snippet-tab active" data-lang="curl">cURL</button>
+              <button type="button" class="snippet-tab" data-lang="python">Python</button>
+              <button type="button" class="snippet-tab" data-lang="ts">TypeScript</button>
+              <button type="button" class="snippet-copy">Copy</button>
+            </div>
+            <pre class="snippet-body"></pre>
+          </div>
+
+          <div class="example-block" data-example="stream">
+            <h3>Streaming</h3>
+            <div class="snippet-tabs">
+              <button type="button" class="snippet-tab active" data-lang="curl">cURL</button>
+              <button type="button" class="snippet-tab" data-lang="python">Python</button>
+              <button type="button" class="snippet-tab" data-lang="ts">TypeScript</button>
+              <button type="button" class="snippet-copy">Copy</button>
+            </div>
+            <pre class="snippet-body"></pre>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>Where things are stored</h2>
+          <ul class="kv">
+            <li><span>Configuration</span> <code>~/.operatorlm/config.toml</code></li>
+            <li><span>API keys</span> <span class="muted">OS keychain (Credential Manager / Keychain / libsecret)</span></li>
+            <li><span>Audit log</span> <code id="help-audit-path">~/.operatorlm/audit.log</code></li>
+          </ul>
+        </div>
+
+        <div class="card">
+          <h2>Routing rules</h2>
+          <ol class="muted">
+            <li>If <code>model</code> matches an alias name → alias router (filtered by cooldown/rpm, ordered).</li>
+            <li>Else if <code>model</code> starts with a provider's prefix → direct slug routing (whitelist enforced if configured).</li>
+            <li>Else → <code>400 no provider or alias matches model "X"</code>.</li>
+          </ol>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <dialog id="localmodels-advanced" class="modal modal-wide">
+    <div class="modal-head">
+      <h2>Advanced · local models</h2>
+      <button type="button" class="btn-ghost" id="localmodels-advanced-close">Close</button>
+    </div>
+    <p class="muted small">Paths, ports and engine flags. Everything here already has working defaults; change it only if you know you need to.</p>
+
+        <div class="card">
           <div class="card-head">
-            <h2>Settings</h2>
+            <h2>Engine settings</h2>
             <span id="localmodels-status" class="badge">unknown</span>
           </div>
           <form id="localmodels-form" autocomplete="off" class="form">
@@ -889,6 +966,19 @@
 
         <div class="card">
           <div class="card-head">
+            <h2>Recommended models</h2>
+            <span class="badge">curated</span>
+          </div>
+          <p class="muted small">Tuned for a ~4 GB GPU (Q4_K_M). One click downloads the model (and its vision projector when applicable) into your models folder with sensible defaults. Sizes are large — downloads run in the background.</p>
+          <div id="catalog-empty" class="empty" hidden>
+            <div class="empty-icon" aria-hidden="true">⌁</div>
+            <p>Set a models folder below so downloads have a destination.</p>
+          </div>
+          <div id="catalog-cards" class="catalog-grid"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
             <h2>Discovered models</h2>
             <span class="badge" id="localmodels-count">0</span>
           </div>
@@ -905,86 +995,7 @@
             </table>
           </div>
         </div>
-      </section>
-
-      <!-- ============ HELP ============ -->
-      <section class="tab-pane" data-pane="help">
-        <header class="pane-head">
-          <div>
-            <span class="kicker">09 · Reference</span>
-            <h1>Help &amp; usage</h1>
-            <p class="muted">Quickstart, examples, and where things live.</p>
-          </div>
-        </header>
-
-        <div class="card">
-          <h2>Quickstart</h2>
-          <ol class="steps">
-            <li><strong>Add a provider</strong> in the <em>Providers</em> tab. Pick a type, paste an API key, click <em>Fetch models</em> to validate, select the models you want exposed, then save.</li>
-            <li><strong>(Optional) Add extra keys</strong> in the <em>API keys</em> tab — useful for vendors with per-key rate limits.</li>
-            <li><strong>(Optional) Create an alias</strong> in the <em>Aliases</em> tab to fan out across keys/providers with automatic fallback.</li>
-            <li><strong>Point your client</strong> (VS Code, Cursor, any OpenAI-compatible app) at <code id="help-base"></code>.</li>
-          </ol>
-        </div>
-
-        <div class="card">
-          <h2>Example requests</h2>
-
-          <div class="example-block" data-example="slug">
-            <h3>Direct slug</h3>
-            <div class="snippet-tabs">
-              <button type="button" class="snippet-tab active" data-lang="curl">cURL</button>
-              <button type="button" class="snippet-tab" data-lang="python">Python</button>
-              <button type="button" class="snippet-tab" data-lang="ts">TypeScript</button>
-              <button type="button" class="snippet-copy">Copy</button>
-            </div>
-            <pre class="snippet-body"></pre>
-          </div>
-
-          <div class="example-block" data-example="alias">
-            <h3>Through an alias</h3>
-            <div class="snippet-tabs">
-              <button type="button" class="snippet-tab active" data-lang="curl">cURL</button>
-              <button type="button" class="snippet-tab" data-lang="python">Python</button>
-              <button type="button" class="snippet-tab" data-lang="ts">TypeScript</button>
-              <button type="button" class="snippet-copy">Copy</button>
-            </div>
-            <pre class="snippet-body"></pre>
-          </div>
-
-          <div class="example-block" data-example="stream">
-            <h3>Streaming</h3>
-            <div class="snippet-tabs">
-              <button type="button" class="snippet-tab active" data-lang="curl">cURL</button>
-              <button type="button" class="snippet-tab" data-lang="python">Python</button>
-              <button type="button" class="snippet-tab" data-lang="ts">TypeScript</button>
-              <button type="button" class="snippet-copy">Copy</button>
-            </div>
-            <pre class="snippet-body"></pre>
-          </div>
-        </div>
-
-        <div class="card">
-          <h2>Where things are stored</h2>
-          <ul class="kv">
-            <li><span>Configuration</span> <code>~/.operatorlm/config.toml</code></li>
-            <li><span>API keys</span> <span class="muted">OS keychain (Credential Manager / Keychain / libsecret)</span></li>
-            <li><span>Audit log</span> <code id="help-audit-path">~/.operatorlm/audit.log</code></li>
-          </ul>
-        </div>
-
-        <div class="card">
-          <h2>Routing rules</h2>
-          <ol class="muted">
-            <li>If <code>model</code> matches an alias name → alias router (filtered by cooldown/rpm, ordered).</li>
-            <li>Else if <code>model</code> starts with a provider's prefix → direct slug routing (whitelist enforced if configured).</li>
-            <li>Else → <code>400 no provider or alias matches model "X"</code>.</li>
-          </ol>
-        </div>
-      </section>
-
-    </main>
-  </div>
+  </dialog>
 
   <dialog id="provider-edit-dialog" class="modal">
     <form id="provider-edit-form" class="form">

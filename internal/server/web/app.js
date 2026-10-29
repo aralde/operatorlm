@@ -711,7 +711,7 @@ function buildCurl(model, stream) {
   // Pretty-print the body for readability in the curl preview.
   const body = JSON.stringify(payload);
   const escaped = body.replace(/'/g, "'\\''");
-  const url = `http://${location.host}/v1/chat/completions`;
+  const url = `${location.protocol}//${location.host}/v1/chat/completions`;
   return `curl ${url} \\
   -H "Content-Type: application/json" \\
   -d '${escaped}'`;
@@ -1086,7 +1086,7 @@ function ttsExampleCard() {
     const payload = buildTtsPayload();
     const body = JSON.stringify(payload);
     const streaming = payload.response_format === 'pcm';
-    return `curl${streaming ? ' -N' : ''} http://${location.host}/v1/audio/speech \\
+    return `curl${streaming ? ' -N' : ''} ${location.protocol}//${location.host}/v1/audio/speech \\
   -H "Content-Type: application/json" \\
   -d '${body.replace(/'/g, "'\\''")}' \\
   -o speech.${streaming ? 'pcm' : 'wav'}`;
@@ -1255,7 +1255,7 @@ function realtimeExampleCard() {
   });
   const buildCurl = () => {
     const body = JSON.stringify(buildPayload());
-    return `curl -N http://${location.host}/v1/audio/speech/realtime \\
+    return `curl -N ${location.protocol}//${location.host}/v1/audio/speech/realtime \\
   -H "Content-Type: application/json" \\
   -d '${body.replace(/'/g, "'\\''")}'`;
   };
@@ -1365,7 +1365,7 @@ function sttExampleCard() {
       <button type="button" class="btn-secondary copy-btn">Copy</button>
       <button type="button" class="btn-primary run-btn">Run</button>
     </div>`;
-  const sttCurl = `curl http://${location.host}/v1/audio/transcriptions \\
+  const sttCurl = `curl ${location.protocol}//${location.host}/v1/audio/transcriptions \\
   -F model=whisper-1 \\
   -F file=@audio.wav`;
   $('.curl-pre', card).textContent = sttCurl;
@@ -1413,6 +1413,50 @@ async function runSTT(card, curl) {
   }
 }
 
+function embeddingsExampleCard(model) {
+  const card = document.createElement('div');
+  card.className = 'example';
+  card.innerHTML = `
+    <div class="example-head">
+      <div class="example-name">${escHtml(model)}</div>
+      <div class="example-meta"><span class="tag">embeddings · llama.cpp</span></div>
+    </div>
+    <pre class="curl-pre"></pre>
+    <div class="example-actions">
+      <button type="button" class="btn-secondary copy-btn">Copy</button>
+      <button type="button" class="btn-primary run-btn">Run</button>
+    </div>`;
+  const body = () => ({ model, input: tryPromptIn.value || 'Say hi in one short sentence.' });
+  const curl = () => `curl ${location.protocol}//${location.host}/v1/embeddings \\
+  -H "Content-Type: application/json" \\
+  -d '${JSON.stringify(body())}'`;
+  const update = () => { $('.curl-pre', card).textContent = curl(); };
+  update();
+  tryPromptIn.addEventListener('input', update);
+  $('.copy-btn', card).addEventListener('click', e => copyText(curl(), e.currentTarget));
+  $('.run-btn', card).addEventListener('click', async () => {
+    setRunningMeta(model, false);
+    $$('.result-tab').forEach(b => b.classList.toggle('active', b.dataset.rt === 'content'));
+    const t0 = performance.now();
+    try {
+      const res = await fetch('/v1/embeddings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body()) });
+      const raw = await res.text();
+      setDoneMeta(model, false, res.status, Math.round(performance.now() - t0));
+      let content = raw;
+      try {
+        const vec = JSON.parse(raw)?.data?.[0]?.embedding;
+        if (Array.isArray(vec)) content = `${vec.length}-dimension vector\n\n[${vec.slice(0, 8).map(v => v.toFixed(4)).join(', ')}, …]`;
+      } catch (_) { /* keep raw */ }
+      lastResult = { content, raw, curl: curl() };
+    } catch (e) {
+      setDoneMeta(model, false, 0, Math.round(performance.now() - t0));
+      lastResult = { content: e.message, raw: e.message, curl: curl() };
+    }
+    renderResultBody('content');
+  });
+  return card;
+}
+
 function renderTryIt() {
   // Slugs: every (provider.prefix + model) pair from configured providers
   slugsHost.innerHTML = '';
@@ -1427,6 +1471,7 @@ function renderTryIt() {
   if (localModelsConfig && localModelsConfig.enabled) {
     const prefix = localModelsConfig.prefix || 'local/';
     for (const m of (localModelsConfig.models || [])) {
+      if (m.embedding) continue;
       slugCount++;
       slugsHost.appendChild(exampleCard(prefix + m.id, 'local'));
     }
@@ -1441,7 +1486,7 @@ function renderTryIt() {
   if (audioCard && audioHost) {
     const lmc = localModelsConfig || {};
     const modelKey = (lmc.models || []).map(m => m.id).join(',');
-    const wantKey = `${!!lmc.piper_enabled}|${!!lmc.whisper_enabled}|${lmc.piper_model || ''}|${(lmc.piper_voices || []).join(',')}|${modelKey}|${providers.length}|${aliases.length}`;
+    const wantKey = `${!!lmc.piper_enabled}|${!!lmc.whisper_enabled}|${lmc.embeddings_enabled ? lmc.embeddings_model : ''}|${lmc.piper_model || ''}|${(lmc.piper_voices || []).join(',')}|${modelKey}|${providers.length}|${aliases.length}`;
     if (audioHost.dataset.built !== wantKey) {
       audioHost.dataset.built = wantKey;
       audioHost.innerHTML = '';
@@ -1449,6 +1494,7 @@ function renderTryIt() {
       if (lmc.piper_enabled)   { audioHost.appendChild(ttsExampleCard()); audioCount++; }
       if (lmc.piper_enabled)   { audioHost.appendChild(realtimeExampleCard()); audioCount++; }
       if (lmc.whisper_enabled) { audioHost.appendChild(sttExampleCard()); audioCount++; }
+      if (lmc.embeddings_enabled && lmc.embeddings_model) { audioHost.appendChild(embeddingsExampleCard(lmc.embeddings_model)); audioCount++; }
       document.getElementById('tryit-audio-count').textContent = audioCount;
       audioCard.hidden = audioCount === 0;
     }
@@ -1953,7 +1999,10 @@ async function loadLocalModels() {
     const isLlamaDl = st.llama_server_download && st.llama_server_download.status === 'downloading';
     const isWhisperDl = st.whisper_download && st.whisper_download.status === 'downloading';
     const isPiperDl = st.piper_download && st.piper_download.status === 'downloading';
-    if (isLlamaDl || isWhisperDl || isPiperDl) {
+    const isSetup = Object.values(st.setup || {}).some(x => x.status === 'running');
+    noteSetupTransitions(st.setup || {});
+    renderCaps();
+    if (isLlamaDl || isWhisperDl || isPiperDl || isSetup) {
       localModelsPoll = setTimeout(loadLocalModels, 1000);
     }
   } catch (e) {
@@ -1963,6 +2012,206 @@ async function loadLocalModels() {
   loadCatalog();
   loadPiperVoices();
 }
+
+// ── Quick setup: one card per local capability ──────────────
+let catalogItems   = [];
+let piperVoiceList = [];
+const capChoice    = {};   // user's pick per capability, kept across re-renders
+let lastSetup      = {};
+
+const CAPS = [
+  { key: 'tts', title: 'Text to speech', engine: 'piper', flag: 'piper_enabled',
+    desc: 'Turns text into spoken audio with a Piper voice.',
+    pickLabel: 'Voice' },
+  { key: 'stt', title: 'Speech to text', engine: 'whisper-server', flag: 'whisper_enabled',
+    desc: 'Transcribes audio files with Whisper.',
+    pickLabel: 'Model', tag: 'stt' },
+  { key: 'embeddings', title: 'Embeddings', engine: 'llama-server', flag: 'embeddings_enabled',
+    desc: 'Vectors for search and RAG, served on /v1/embeddings.',
+    pickLabel: 'Model', tag: 'embedding' },
+  { key: 'chat', title: 'Chat model', engine: 'llama-server', flag: 'enabled',
+    desc: 'A local LLM for /v1/chat/completions. Loads on first use.',
+    pickLabel: 'Model', tag: 'chat' },
+];
+
+function capOptions(cap) {
+  if (cap.key === 'tts') {
+    return piperVoiceList.map(v => ({
+      id: v.key,
+      group: v.country ? `${v.lang_name} — ${v.country}` : (v.lang_name || v.language),
+      label: `${v.language} · ${v.speaker} · ${v.quality}${v.size_bytes ? ' · ' + fmtBytes(v.size_bytes) : ''}${v.installed ? ' · installed' : ''}`,
+      installed: v.installed, quality: v.quality, language: v.language,
+    }));
+  }
+  return catalogItems.filter(it => (it.tags || []).includes(cap.tag)).map(it => ({
+    id: it.id, model: it.model_id, recommended: it.recommended, installed: it.installed,
+    label: `${it.name.replace(/ \((STT|TTS[^)]*)\)$/, '')}${it.backend === 'gpu' ? ' · GPU' : ' · CPU'} · ${fmtBytes((it.files || []).reduce((a, f) => a + (f.size_bytes || 0), 0))}${it.installed ? ' · installed' : ''}`,
+  }));
+}
+
+// The capability's current pick, from the saved config.
+function capActive(cap, st, opts) {
+  if (cap.key === 'tts') return (st.piper_model || '').replace(/\.onnx$/i, '');
+  if (cap.key === 'stt') return (opts.find(o => o.model === st.whisper_model) || {}).id || '';
+  if (cap.key === 'embeddings') return (opts.find(o => o.model === st.embeddings_model) || {}).id || '';
+  return (opts.find(o => o.installed) || {}).id || '';
+}
+
+// What to preselect when nothing is configured yet: an installed option, the
+// browser's language for voices, the recommended model, else the first.
+function capDefault(cap, opts) {
+  const installed = opts.find(o => o.installed);
+  if (installed) return installed.id;
+  if (cap.key === 'tts') {
+    const lang = (navigator.language || 'en-US').replace('-', '_');
+    const base = lang.split('_')[0];
+    const rank = o => (o.language === lang ? 0 : o.language.startsWith(base + '_') ? 1 : 2) * 10 +
+      ({ medium: 0, high: 1, low: 2, x_low: 3 }[o.quality] ?? 4);
+    return [...opts].sort((a, b) => rank(a) - rank(b))[0]?.id || '';
+  }
+  if (cap.key === 'chat') return (opts.find(o => o.id === 'llama-3.2-3b-cpu') || opts.find(o => o.recommended) || opts[0] || {}).id || '';
+  return (opts.find(o => o.recommended) || opts[0] || {}).id || '';
+}
+
+function capUsage(cap, st, active, opts) {
+  const opt = opts.find(o => o.id === active) || {};
+  switch (cap.key) {
+    case 'tts':        return [['model', 'tts-1'], ['voice', active]];
+    case 'stt':        return [['model', 'whisper-1']];
+    case 'embeddings': return [['model', opt.model || st.embeddings_model || '']];
+    default:           return opt.model ? [['model', (st.prefix || 'local/') + opt.model]] : [];
+  }
+}
+
+function capSelectHTML(cap, opts, selected) {
+  if (!opts.length) {
+    return `<select disabled><option>${cap.key === 'tts' ? 'Loading voices…' : 'Loading models…'}</option></select>`;
+  }
+  let html = '';
+  if (cap.key === 'tts') {
+    const groups = new Map();
+    for (const o of opts) {
+      if (!groups.has(o.group)) groups.set(o.group, []);
+      groups.get(o.group).push(o);
+    }
+    for (const [g, list] of groups) {
+      html += `<optgroup label="${escHtml(g)}">` + list.map(o =>
+        `<option value="${escHtml(o.id)}"${o.id === selected ? ' selected' : ''}>${escHtml(o.label)}</option>`).join('') + '</optgroup>';
+    }
+  } else {
+    html = opts.map(o =>
+      `<option value="${escHtml(o.id)}"${o.id === selected ? ' selected' : ''}>${escHtml(o.label)}${o.recommended ? ' · recommended' : ''}</option>`).join('');
+  }
+  return `<select data-cap-select="${cap.key}">${html}</select>`;
+}
+
+function renderCaps() {
+  const grid = $('#cap-grid');
+  if (!grid) return;
+  const st = localModelsConfig || {};
+  const setup = st.setup || {};
+  const focused = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.capSelect : null;
+  if (focused) return; // don't rebuild a select the user has open
+
+  grid.innerHTML = CAPS.map(cap => {
+    const opts    = capOptions(cap);
+    const engineReady = { 'piper': st.piper_installed, 'whisper-server': st.whisper_installed, 'llama-server': st.llama_server_installed }[cap.engine];
+    const flagged = !!st[cap.flag];
+    const on      = flagged && !!engineReady;
+    const active  = on ? capActive(cap, st, opts) : '';
+    const sel     = capChoice[cap.key] || active || capDefault(cap, opts);
+    const job     = setup[cap.key] || {};
+    const running = job.status === 'running';
+    const failed  = job.status === 'error';
+    const canGet  = (st.downloadable || {})[cap.engine];
+    const blocked = !canGet && !engineReady;
+
+    let state = '<span class="tag tag-disabled">off</span>';
+    if (running) state = '<span class="tag tag-accent">setting up</span>';
+    else if (failed) state = '<span class="tag text-danger">error</span>';
+    else if (on) state = '<span class="tag tag-ok">on</span>';
+    else if (flagged) state = '<span class="tag text-danger" title="Enabled, but its engine is not installed">incomplete</span>';
+
+    let body = '';
+    if (running) {
+      const pct = job.total > 0 ? Math.min(100, Math.round(job.downloaded / job.total * 100)) : 0;
+      const what = { engine: `Installing ${cap.engine}`, model: cap.key === 'tts' ? 'Downloading voice' : 'Downloading model', starting: 'Starting' }[job.step] || 'Working';
+      body = `<div class="dl-progress"><div class="dl-bar" style="width:${job.step === 'starting' ? 100 : pct}%"></div></div>
+              <span class="muted xsmall">${what}${job.total > 0 && job.step !== 'starting' ? ` · ${pct}% · ${fmtBytes(job.downloaded)} / ${fmtBytes(job.total)}` : '…'}</span>`;
+    } else {
+      const switching = on && sel && sel !== active;
+      const btn = blocked
+        ? ''
+        : on && !switching
+          ? `<button class="btn-secondary" data-cap-off="${cap.key}">Turn off</button>`
+          : `<button class="btn-primary" data-cap-on="${cap.key}" ${sel ? '' : 'disabled'}>${switching ? 'Switch' : 'Turn on'}</button>`;
+      body = `<div class="cap-row">${capSelectHTML(cap, opts, sel)}${btn}</div>`;
+      if (blocked) {
+        body += `<p class="muted xsmall">No prebuilt ${escHtml(cap.engine)} for this platform. Install it and put it on PATH, or set its path in Advanced settings.</p>`;
+      }
+      if (failed) body += `<p class="xsmall text-danger cap-error">${escHtml(job.error || 'Setup failed')}</p>`;
+    }
+
+    const usage = on && !running ? capUsage(cap, st, active, opts).filter(([, v]) => v) : [];
+    const usageHTML = usage.length
+      ? `<div class="cap-usage">${usage.map(([k, v]) =>
+          `<span class="cap-pair"><span class="muted xsmall">${k}</span> <code>${escHtml(v)}</code> <button class="btn-ghost btn-sm" data-copy-usage="${escHtml(v)}">Copy</button></span>`).join('')}</div>`
+      : '';
+
+    return `<div class="card cap-card${on ? ' is-on' : ''}">
+      <div class="cap-head"><h2>${cap.title}</h2>${state}</div>
+      <p class="muted small cap-desc">${cap.desc}</p>
+      <label class="cap-label">${cap.pickLabel}</label>
+      ${body}
+      ${usageHTML}
+    </div>`;
+  }).join('');
+
+  grid.querySelectorAll('[data-cap-select]').forEach(el => el.addEventListener('change', () => {
+    capChoice[el.dataset.capSelect] = el.value;
+    renderCaps();
+  }));
+  grid.querySelectorAll('[data-cap-on]').forEach(b => b.addEventListener('click', () => {
+    const key = b.dataset.capOn;
+    const sel = grid.querySelector(`[data-cap-select="${key}"]`);
+    capSetup(key, sel ? sel.value : '', true, b);
+  }));
+  grid.querySelectorAll('[data-cap-off]').forEach(b => b.addEventListener('click', () =>
+    capSetup(b.dataset.capOff, '', false, b)));
+  grid.querySelectorAll('[data-copy-usage]').forEach(b => b.addEventListener('click', () =>
+    copyText(b.dataset.copyUsage, b)));
+}
+
+async function capSetup(capability, choice, enable, btn) {
+  btn.disabled = true;
+  try {
+    applyLocalModelsStatus(await api('POST', '/admin/localmodels/setup', { capability, choice, enable }));
+    if (!enable) { delete capChoice[capability]; toast('Turned off', 'info'); }
+    loadLocalModels();
+  } catch (err) {
+    toast(err.message, 'error');
+    btn.disabled = false;
+  }
+}
+
+function noteSetupTransitions(setup) {
+  for (const [cap, job] of Object.entries(setup)) {
+    const prev = (lastSetup[cap] || {}).status;
+    const title = (CAPS.find(c => c.key === cap) || {}).title || cap;
+    if (prev === 'running' && job.status === 'done') {
+      toast(`${title} is on`, 'success');
+      delete capChoice[cap];
+      loadPiperVoices(true);
+      loadCatalog();
+    }
+    if (prev === 'running' && job.status === 'error') toast(`${title}: ${job.error}`, 'error');
+  }
+  lastSetup = setup;
+}
+
+const lmAdvanced = $('#localmodels-advanced');
+$('#localmodels-advanced-open').addEventListener('click', () => lmAdvanced.showModal());
+$('#localmodels-advanced-close').addEventListener('click', () => lmAdvanced.close());
 
 // ── Recommended models catalog ──────────────────────────────
 let catalogPoll = null;
@@ -2023,7 +2272,9 @@ async function loadCatalog() {
   let data;
   try { data = await api('GET', '/admin/localmodels/catalog'); }
   catch (e) { return; }
+  catalogItems = data.items || [];
   renderCatalog(data);
+  renderCaps();
 
   let anyDownloading = false;
   for (const it of (data.items || [])) {
@@ -2133,6 +2384,8 @@ async function loadPiperVoices(force = false) {
   try {
     const voices = await api('GET', '/admin/localmodels/piper/voices');
     piperVoicesLoaded = true;
+    piperVoiceList = voices;
+    renderCaps();
     const prev = piperVoiceSelect.value;
     piperVoiceSelect.innerHTML = '<option value="">— Pick a voice to download —</option>';
     const groups = new Map();
@@ -2379,7 +2632,7 @@ function render() {
     });
 
   // Help section examples ----------------------------------
-  const baseURL = `http://${location.host}`;
+  const baseURL = `${location.protocol}//${location.host}`;
   $('#help-base').textContent = `${baseURL}/v1`;
   $('#endpoint-addr').textContent = location.host;
   renderHelpExamples(baseURL);

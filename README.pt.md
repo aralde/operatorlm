@@ -237,7 +237,7 @@ A aba **Local models** traz um catálogo curado — você escolhe um modelo e o 
 - **Voz**: Whisper Base (STT) e vozes do Piper (TTS).
 
 > [!NOTE]
-> A inferência local precisa do binário `llama-server` (llama.cpp). O admin UI tem um download de um clique, ou defina `local_models.llama_server_path` para o seu próprio build. Whisper e Piper têm os próprios botões de download.
+> Não é preciso instalar nada à mão. Na aba **Local models**, cada capacidade (texto para fala, fala para texto, embeddings, chat) é um card: escolha uma voz ou um modelo e clique em **Turn on**. O OperatorLM baixa o motor (`piper`, `whisper-server` ou `llama-server`) e o modelo para a sua plataforma (Windows, Linux, macOS), confere que o motor inicia e ativa a capacidade. Caminhos, portas e flags do motor ficam em **Advanced settings**. O whisper.cpp não publica binário para macOS: instale com `brew install whisper-cpp`.
 
 Como escuta na porta do Ollama e fala a API da OpenAI, qualquer ferramenta local-first (Continue, Cline, Zed, Open WebUI…) alcança os seus modelos locais sem mudanças — enquanto o *mesmo* proxy pode fazer failover para a nuvem.
 

@@ -122,3 +122,24 @@ func TestScanLocalModelsGenericProjectorOwnFolder(t *testing.T) {
 		t.Errorf("model in own folder should pair the lone projector, got none")
 	}
 }
+
+func TestScanLocalModelsFlagsEmbeddingModels(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"Llama-3.2-3B-Instruct-Q4_K_M.gguf", "embeddinggemma-300M-Q8_0.gguf", "nomic-embed-text-v1.5.Q8_0.gguf"} {
+		writeFile(t, filepath.Join(dir, name))
+	}
+	models, err := ScanLocalModels(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]bool{}
+	for _, m := range models {
+		got[m.ID] = m.Embedding
+	}
+	want := map[string]bool{"Llama-3.2-3B-Instruct-Q4_K_M": false, "embeddinggemma-300M-Q8_0": true, "nomic-embed-text-v1.5.Q8_0": true}
+	for id, emb := range want {
+		if v, ok := got[id]; !ok || v != emb {
+			t.Errorf("%s: embedding=%v (found=%v), want %v", id, v, ok, emb)
+		}
+	}
+}

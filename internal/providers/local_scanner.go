@@ -14,6 +14,7 @@ type LocalModel struct {
 	Path       string `json:"path"`                  // absolute path to the (first-shard) .gguf file
 	SizeBytes  int64  `json:"size_bytes"`            // size of the .gguf file
 	MMProjPath string `json:"mmproj_path,omitempty"` // multimodal projector (enables vision) when present
+	Embedding  bool   `json:"embedding,omitempty"`   // embedding-only model: served by the embeddings sidecar, not chat
 }
 
 // HasVision reports whether the model ships a multimodal projector.
@@ -116,7 +117,7 @@ func ScanLocalModels(dir string) ([]LocalModel, error) {
 		if existing, clash := byID[id]; clash && existing.Path != mdl.path {
 			id = mdl.stem + "@" + filepath.Base(filepath.Dir(mdl.path))
 		}
-		lm := LocalModel{ID: id, Path: mdl.path, SizeBytes: mdl.size}
+		lm := LocalModel{ID: id, Path: mdl.path, SizeBytes: mdl.size, Embedding: IsEmbeddingModel(id)}
 		dir := filepath.Dir(mdl.path)
 		if proj, ok := projByFamily[familyKey(mdl.stem)]; ok {
 			lm.MMProjPath = proj

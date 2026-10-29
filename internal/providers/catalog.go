@@ -177,9 +177,21 @@ var catalog = []CatalogEntry{
 		Description: "Local speech-to-text model. Highly accurate and fast multilingual transcription.",
 		Tags:        []string{"audio", "stt"},
 		Backend:     "cpu",
+		Recommended: true,
 		ModelID:     "ggml-base.bin",
 		Files: []CatalogFile{
 			{URL: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin", Filename: "ggml-base.bin", Role: "model", Size: 141 << 20},
+		},
+	},
+	{
+		ID:          "whisper-small",
+		Name:        "Whisper Small (STT)",
+		Description: "Larger multilingual speech-to-text model: noticeably better accuracy on accents and noisy audio, about 3x slower than Base on CPU.",
+		Tags:        []string{"audio", "stt"},
+		Backend:     "cpu",
+		ModelID:     "ggml-small.bin",
+		Files: []CatalogFile{
+			{URL: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin", Filename: "ggml-small.bin", Role: "model", Size: 466 << 20},
 		},
 	},
 	{
@@ -220,4 +232,22 @@ func CatalogSettingsFor(modelID string) (ngl int, ctx int, ok bool) {
 		}
 	}
 	return 0, 0, false
+}
+
+// IsEmbeddingModel reports whether a scanned model id (filename stem) is an
+// embedding-only model: tagged so in the catalog, or named like one. Those
+// cannot serve chat completions; llama-server aborts if asked to.
+func IsEmbeddingModel(modelID string) bool {
+	for _, e := range catalog {
+		if strings.EqualFold(e.ModelID, modelID) {
+			for _, t := range e.Tags {
+				if t == "embedding" {
+					return true
+				}
+			}
+			return false
+		}
+	}
+	id := strings.ToLower(modelID)
+	return strings.Contains(id, "embed") || strings.HasPrefix(id, "bge-") || strings.Contains(id, "minilm")
 }
