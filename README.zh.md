@@ -237,7 +237,7 @@ OperatorLM 内置了 **llama.cpp 引擎** —— 不需要单独的 Ollama 守�
 - **语音**:Whisper Base(STT)和 Piper 音色(TTS)。
 
 > [!NOTE]
-> 本地推理需要 `llama-server` 二进制(llama.cpp)。admin UI 提供一键下载,或把 `local_models.llama_server_path` 指向你自己的构建。Whisper 和 Piper 各自有独立的下载按钮。
+> 无需手动安装任何东西。在 **Local models** 标签页中,每项能力(文本转语音、语音转文本、embeddings、chat)都是一张卡片:选择一个声音或模型,点击 **Turn on**。OperatorLM 会为你的平台(Windows、Linux、macOS)下载引擎(`piper`、`whisper-server` 或 `llama-server`)和模型,检查引擎能否启动,然后启用该能力。路径、端口和引擎参数在 **Advanced settings** 中。whisper.cpp 没有预编译的 macOS 二进制:请用 `brew install whisper-cpp` 安装。
 
 由于它绑定在 Ollama 的端口上并讲 OpenAI API,任何 local-first 工具(Continue、Cline、Zed、Open WebUI…)都能不改一行地访问你的本地模型 —— 而*同一个* proxy 又能在需要时 failover 到云端。
 

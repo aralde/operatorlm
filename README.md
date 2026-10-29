@@ -236,10 +236,10 @@ The **Local models** tab ships a curated catalog — pick a model and OperatorLM
 
 - **Chat / vision / agentic**: Qwen2.5-VL 3B, Gemma 3 4B, Qwen2.5 3B, Llama 3.2 3B, Phi-4 Mini, SmallThinker 3B, Gemma 4 E2B.
 - **Embeddings**: **Qwen3-Embedding 0.6B** (best-in-class multilingual for its size, 100+ languages) and **EmbeddingGemma 300M** (Google's lightweight on-device model). Both run on CPU by default so they don't compete with the chat model for VRAM.
-- **Speech**: Whisper Base (STT) and Piper voices (TTS).
+- **Speech**: Whisper Base and Small (STT), and the full Piper voice catalog (TTS).
 
 > [!NOTE]
-> Local inference needs the `llama-server` binary (llama.cpp). The admin UI has a one-click download for it, or set `local_models.llama_server_path` to your own build. Whisper and Piper have their own download buttons.
+> You don't need to install anything by hand. In the **Local models** tab, each capability (text to speech, speech to text, embeddings, chat) is one card: pick a voice or model and click **Turn on**. OperatorLM downloads the engine (`piper`, `whisper-server` or `llama-server`) and the model for your platform (Windows, Linux, macOS), checks the engine starts, and switches the capability on. Paths, ports and engine flags live in **Advanced settings**. whisper.cpp has no prebuilt macOS binary: install it with `brew install whisper-cpp`.
 
 Because it binds on the Ollama port and speaks the OpenAI API, any local-first tool (Continue, Cline, Zed, Open WebUI…) reaches your local models unchanged — while the *same* proxy can fail over to the cloud.
 
