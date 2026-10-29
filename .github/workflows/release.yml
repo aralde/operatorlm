@@ -33,6 +33,11 @@ jobs:
             goos: linux
             goarch: amd64
             output: OperatorLM-linux-amd64
+          - os: ubuntu-latest
+            goos: linux
+            goarch: amd64
+            notray: '1'
+            output: OperatorLM-linux-amd64-headless
 
     runs-on: ${{ matrix.os }}
     steps:
@@ -45,7 +50,7 @@ jobs:
           go-version: '1.26'
 
       - name: Install Linux deps (GTK + AppIndicator for systray)
-        if: matrix.goos == 'linux'
+        if: matrix.goos == 'linux' && !matrix.notray
         run: |
           sudo apt-get update
           sudo apt-get install -y gcc libgtk-3-dev libayatana-appindicator3-dev
@@ -56,6 +61,7 @@ jobs:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           VERSION: ${{ github.ref_name }}
+          NOTRAY: ${{ matrix.notray }}
         run: |
           chmod +x build.sh
           ./build.sh
