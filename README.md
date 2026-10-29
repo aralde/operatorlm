@@ -33,6 +33,7 @@ Head to the [Releases page](https://github.com/aralde/operatorlm/releases/latest
 | macOS (Apple silicon) | `OperatorLM-darwin-arm64`          |
 | macOS (Intel)         | `OperatorLM-darwin-amd64`          |
 | Linux (x64)           | `OperatorLM-linux-amd64`           |
+| Linux (x64, headless) | `OperatorLM-linux-amd64-headless`  |
 
 > [!NOTE]
 > On macOS/Linux, mark the binary executable: `chmod +x OperatorLM-*`.
@@ -42,7 +43,7 @@ Head to the [Releases page](https://github.com/aralde/operatorlm/releases/latest
 - **Windows**: double-click `OperatorLM-windows-amd64.exe`. A tray icon appears (no console window). On first launch, SmartScreen may show *"Windows protected your PC"* → click **More info → Run anyway** (the binary is unsigned).
 - **macOS desktop**: `./OperatorLM-darwin-*` — tray icon appears. On first launch, Gatekeeper will block it → right-click the binary in Finder → **Open** → **Open** again in the dialog (only needed once).
 - **Linux desktop**: `./OperatorLM-linux-amd64` — tray icon appears.
-- **Linux headless**: `OPERATORLM_NO_TRAY=1 ./OperatorLM-linux-amd64`.
+- **Linux headless**: `./OperatorLM-linux-amd64-headless`. Static binary with no tray, so it needs no GTK or AppIndicator libraries. The regular binary also runs headless with `OPERATORLM_NO_TRAY=1`, but still needs those libraries installed.
 
 ### 3. Open the admin UI
 
@@ -325,8 +326,9 @@ OperatorLM self-updates from GitHub Releases. Pick **Check for updates** from th
 # Linux / macOS (desktop)
 ./OperatorLM
 
-# Linux (headless server, no tray)
-OPERATORLM_NO_TRAY=1 ./OperatorLM
+# Linux (headless server, no tray, no CGO/GTK)
+NOTRAY=1 ./build.sh
+./operatorlm
 ```
 
 A tray icon appears. The admin UI is at **<http://127.0.0.1:11434/admin/>**.

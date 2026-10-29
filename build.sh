@@ -10,6 +10,7 @@
 #   ./build.sh                              # build for the host
 #   GOOS=linux GOARCH=arm64 ./build.sh      # cross-compile
 #   GOOS=windows ./build.sh                 # produces operatorlm.exe
+#   NOTRAY=1 ./build.sh                     # headless: no tray, no CGO, no GTK
 set -euo pipefail
 
 cd "$(dirname "$0")"
@@ -49,18 +50,25 @@ if [ -n "$version" ]; then
   fi
 fi
 
-# getlantern/systray requires CGO on every platform.
-export CGO_ENABLED="${CGO_ENABLED:-1}"
+# getlantern/systray requires CGO on every platform. Headless builds drop the
+# tray, so they build without CGO into a static binary.
+tags=""
+if [ -n "${NOTRAY:-}" ]; then
+  tags="-tags=notray"
+  export CGO_ENABLED="${CGO_ENABLED:-0}"
+else
+  export CGO_ENABLED="${CGO_ENABLED:-1}"
+fi
 
-echo "Building $output for $target_os/$target_arch (CGO_ENABLED=$CGO_ENABLED, version=${version:-dev})"
+echo "Building $output for $target_os/$target_arch (CGO_ENABLED=$CGO_ENABLED, notray=${NOTRAY:-0}, version=${version:-dev})"
 
 # -trimpath / -buildvcs=false: strip local paths and VCS stamps so the binary
 # is reproducible and doesn't leak $HOME — also reduces SmartScreen/Defender
 # false positives on fresh Go binaries.
 if [ -n "$ldflags" ]; then
-  GOOS="$target_os" GOARCH="$target_arch" go build -trimpath -buildvcs=false -ldflags="$ldflags" -o "$output" .
+  GOOS="$target_os" GOARCH="$target_arch" go build $tags -trimpath -buildvcs=false -ldflags="$ldflags" -o "$output" .
 else
-  GOOS="$target_os" GOARCH="$target_arch" go build -trimpath -buildvcs=false -o "$output" .
+  GOOS="$target_os" GOARCH="$target_arch" go build $tags -trimpath -buildvcs=false -o "$output" .
 fi
 
 echo "Built $output"
