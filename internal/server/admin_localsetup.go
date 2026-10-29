@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -250,12 +252,41 @@ func (s *Server) runSetup(capability, choice string, plan setupPlan) {
 	if plan.apply != nil {
 		plan.apply(&lm)
 	}
+	// Stop our own sidecar first so its port reads as free, then make sure no
+	// other program owns it: the engine would fail to bind while requests hit
+	// that program instead.
+	if capabilityEnabled(lm, capability) {
+		off := lm
+		setCapability(&off, capability, false)
+		if err := s.saveLocalModels(off); err != nil {
+			fail(err)
+			return
+		}
+	}
+	if port := capabilityPort(&lm, capability); port != nil && !portFree(*port) {
+		free, err := findFreePort(*port + 10)
+		if err != nil {
+			fail(err)
+			return
+		}
+		log.Printf("local setup %s: port %d is in use, using %d", capability, *port, free)
+		*port = free
+	}
 	setCapability(&lm, capability, true)
 	if err := s.saveLocalModels(lm); err != nil {
 		fail(err)
 		return
 	}
 	s.reg.RefreshLocalEngines()
+
+	// Chat starts llama-server on the first request; the sidecars must be up now.
+	if port := capabilityPort(&lm, capability); port != nil && capability != capChat && !waitListening(ctx, *port, 90*time.Second) {
+		lm = s.cfg.GetLocalModels()
+		setCapability(&lm, capability, false)
+		_ = s.saveLocalModels(lm)
+		fail(fmt.Errorf("%s did not start on port %d; see operatorlm.log for its output", plan.tool, *port))
+		return
+	}
 	s.setup.update(capability, func(st *setupState) { st.Status = "done"; st.Step = "" })
 	log.Printf("local setup %s: %s ready", capability, choice)
 }
@@ -288,6 +319,63 @@ func setCapability(lm *config.LocalModelsConfig, capability string, on bool) {
 	case capChat:
 		lm.Enabled = on
 	}
+}
+
+func capabilityEnabled(lm config.LocalModelsConfig, capability string) bool {
+	switch capability {
+	case capTTS:
+		return lm.PiperEnabled
+	case capSTT:
+		return lm.WhisperEnabled
+	case capEmbeddings:
+		return lm.EmbeddingsEnabled
+	}
+	return lm.Enabled
+}
+
+func capabilityPort(lm *config.LocalModelsConfig, capability string) *int {
+	switch capability {
+	case capTTS:
+		return &lm.PiperPort
+	case capSTT:
+		return &lm.WhisperPort
+	case capEmbeddings:
+		return &lm.EmbeddingsPort
+	case capChat:
+		return &lm.Port
+	}
+	return nil
+}
+
+func portFree(port int) bool {
+	ln, err := net.Listen("tcp", "127.0.0.1:"+strconv.Itoa(port))
+	if err != nil {
+		return false
+	}
+	ln.Close()
+	return true
+}
+
+func findFreePort(from int) (int, error) {
+	for p := from; p < from+200 && p < 65536; p++ {
+		if portFree(p) {
+			return p, nil
+		}
+	}
+	return 0, fmt.Errorf("no free local port found from %d", from)
+}
+
+func waitListening(ctx context.Context, port int, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	addr := "127.0.0.1:" + strconv.Itoa(port)
+	for time.Now().Before(deadline) && ctx.Err() == nil {
+		if c, err := net.DialTimeout("tcp", addr, time.Second); err == nil {
+			c.Close()
+			return true
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	return false
 }
 
 func (s *Server) saveLocalModels(lm config.LocalModelsConfig) error {
