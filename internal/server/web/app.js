@@ -2069,20 +2069,22 @@ function renderCaps() {
 
   grid.innerHTML = CAPS.map(cap => {
     const opts    = capOptions(cap);
-    const on      = !!st[cap.flag];
+    const engineReady = { 'piper': st.piper_installed, 'whisper-server': st.whisper_installed, 'llama-server': st.llama_server_installed }[cap.engine];
+    const flagged = !!st[cap.flag];
+    const on      = flagged && !!engineReady;
     const active  = on ? capActive(cap, st, opts) : '';
     const sel     = capChoice[cap.key] || active || capDefault(cap, opts);
     const job     = setup[cap.key] || {};
     const running = job.status === 'running';
     const failed  = job.status === 'error';
     const canGet  = (st.downloadable || {})[cap.engine];
-    const engineInstalled = { 'piper': st.piper_installed, 'whisper-server': st.whisper_installed, 'llama-server': st.llama_server_installed }[cap.engine];
-    const blocked = !canGet && !engineInstalled;
+    const blocked = !canGet && !engineReady;
 
     let state = '<span class="tag tag-disabled">off</span>';
     if (running) state = '<span class="tag tag-accent">setting up</span>';
     else if (failed) state = '<span class="tag text-danger">error</span>';
     else if (on) state = '<span class="tag tag-ok">on</span>';
+    else if (flagged) state = '<span class="tag text-danger" title="Enabled, but its engine is not installed">incomplete</span>';
 
     let body = '';
     if (running) {
