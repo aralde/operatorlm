@@ -50,6 +50,7 @@ type Server struct {
 	audit     *audit.Logger
 	upd       *update.Manager
 	dl        *providers.Downloader
+	setup     setupTracker
 	recentMu  sync.Mutex
 	recentReq []RecentRequest
 }
@@ -87,6 +88,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/admin/localauth", s.handleLocalAuth)
 	mux.HandleFunc("/admin/localmodels", s.handleLocalModels)
 	mux.HandleFunc("/admin/localmodels/scan", s.handleLocalModelsScan)
+	mux.HandleFunc("/admin/localmodels/setup", s.handleLocalSetup)
 	mux.HandleFunc("/admin/localmodels/catalog", s.handleLocalCatalog)
 	mux.HandleFunc("/admin/localmodels/catalog/download", s.handleLocalCatalogDownload)
 	mux.HandleFunc("/admin/localmodels/llama-server/download", s.handleLlamaServerDownload)

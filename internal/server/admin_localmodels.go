@@ -20,12 +20,18 @@ type localModelsStatus struct {
 	LlamaServerInstalled bool                    `json:"llama_server_installed"`
 	LlamaServerDownload  providers.DownloadState `json:"llama_server_download"`
 
-	WhisperInstalled     bool                    `json:"whisper_installed"`
-	WhisperDownload      providers.DownloadState `json:"whisper_download"`
+	WhisperInstalled bool                    `json:"whisper_installed"`
+	WhisperDownload  providers.DownloadState `json:"whisper_download"`
 
-	PiperInstalled       bool                    `json:"piper_installed"`
-	PiperDownload        providers.DownloadState `json:"piper_download"`
-	PiperVoices          []string                `json:"piper_voices"`
+	PiperInstalled bool                    `json:"piper_installed"`
+	PiperDownload  providers.DownloadState `json:"piper_download"`
+	PiperVoices    []string                `json:"piper_voices"`
+
+	// Setup is the one-click setup progress per capability (tts, stt,
+	// embeddings, chat); Downloadable says which engine binaries have a
+	// prebuilt download for this platform.
+	Setup        map[string]setupState `json:"setup"`
+	Downloadable map[string]bool       `json:"downloadable"`
 }
 
 func (s *Server) handleLocalModels(w http.ResponseWriter, r *http.Request) {
@@ -156,12 +162,19 @@ func (s *Server) localModelsStatus() localModelsStatus {
 		LlamaServerInstalled: fileOrPathExists(lm.LlamaServerPath),
 		LlamaServerDownload:  s.dl.Status("llama-server"),
 
-		WhisperInstalled:     fileOrPathExists(lm.WhisperServerPath),
-		WhisperDownload:      s.dl.Status("whisper-server"),
+		WhisperInstalled: fileOrPathExists(lm.WhisperServerPath),
+		WhisperDownload:  s.dl.Status("whisper-server"),
 
-		PiperInstalled:       fileOrPathExists(lm.PiperPath),
-		PiperDownload:        s.dl.Status("piper"),
-		PiperVoices:          providers.InstalledPiperVoices(lm.ModelsDir),
+		PiperInstalled: fileOrPathExists(lm.PiperPath),
+		PiperDownload:  s.dl.Status("piper"),
+		PiperVoices:    providers.InstalledPiperVoices(lm.ModelsDir),
+
+		Setup: s.setup.all(),
+		Downloadable: map[string]bool{
+			"llama-server":   providers.ToolDownloadable("llama-server"),
+			"whisper-server": providers.ToolDownloadable("whisper-server"),
+			"piper":          providers.ToolDownloadable("piper"),
+		},
 	}
 
 	if eng := s.reg.LocalEngine(); eng != nil {

@@ -177,9 +177,21 @@ var catalog = []CatalogEntry{
 		Description: "Local speech-to-text model. Highly accurate and fast multilingual transcription.",
 		Tags:        []string{"audio", "stt"},
 		Backend:     "cpu",
+		Recommended: true,
 		ModelID:     "ggml-base.bin",
 		Files: []CatalogFile{
 			{URL: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin", Filename: "ggml-base.bin", Role: "model", Size: 141 << 20},
+		},
+	},
+	{
+		ID:          "whisper-small",
+		Name:        "Whisper Small (STT)",
+		Description: "Larger multilingual speech-to-text model: noticeably better accuracy on accents and noisy audio, about 3x slower than Base on CPU.",
+		Tags:        []string{"audio", "stt"},
+		Backend:     "cpu",
+		ModelID:     "ggml-small.bin",
+		Files: []CatalogFile{
+			{URL: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin", Filename: "ggml-small.bin", Role: "model", Size: 466 << 20},
 		},
 	},
 	{
