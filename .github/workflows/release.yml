@@ -97,3 +97,19 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release upload "${{ github.ref_name }}" dist/* --clobber --repo "${{ github.repository }}"
+
+  # Opens a version-bump PR against microsoft/winget-pkgs for each release.
+  # Disabled until the package has been accepted once (see
+  # packaging/winget/README.md); enable by setting the repository variable
+  # WINGET_ENABLED=true and the secret WINGET_TOKEN.
+  winget:
+    name: Update winget package
+    needs: release
+    if: vars.WINGET_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: vedantmgoyal9/winget-releaser@v2
+        with:
+          identifier: aralde.OperatorLM
+          installers-regex: 'OperatorLM-windows-amd64\.exe$'
+          token: ${{ secrets.WINGET_TOKEN }}
