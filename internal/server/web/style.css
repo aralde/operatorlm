@@ -1589,3 +1589,6 @@ dialog.modal .card { margin-top: 12px; }
   .cap-grid { grid-template-columns: 1fr; }
   .cap-row { flex-direction: column; }
 }
+
+a.btn-secondary { display: inline-flex; align-items: center; text-decoration: none; }
+.audit-actions { display: flex; gap: 8px; }
