@@ -13,6 +13,7 @@ import (
 	"github.com/rs/cors"
 
 	"github.com/aralde/operatorlm/internal/audit"
+	"github.com/aralde/operatorlm/internal/cassette"
 	"github.com/aralde/operatorlm/internal/config"
 	"github.com/aralde/operatorlm/internal/providers"
 	"github.com/aralde/operatorlm/internal/router"
@@ -48,6 +49,7 @@ type Server struct {
 	reg       *providers.Registry
 	rt        *router.Router
 	audit     *audit.Logger
+	cassette  *cassetteState
 	upd       *update.Manager
 	dl        *providers.Downloader
 	setup     setupTracker
@@ -56,7 +58,7 @@ type Server struct {
 }
 
 func New(cfg *config.Config, reg *providers.Registry, auditLogger *audit.Logger, upd *update.Manager) *Server {
-	return &Server{cfg: cfg, reg: reg, rt: router.New(cfg), audit: auditLogger, upd: upd, dl: providers.NewDownloader()}
+	return &Server{cfg: cfg, reg: reg, rt: router.New(cfg), audit: auditLogger, cassette: &cassetteState{store: cassette.New()}, upd: upd, dl: providers.NewDownloader()}
 }
 
 func (s *Server) Handler() http.Handler {
@@ -80,6 +82,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/admin/aliases", s.handleAliases)
 	mux.HandleFunc("/admin/aliases/", s.handleAliasItem)
 	mux.HandleFunc("/admin/audit", s.handleAudit)
+	mux.HandleFunc("/admin/cassette", s.handleCassette)
 	mux.HandleFunc("/admin/reliability", s.handleReliability)
 	mux.HandleFunc("/admin/health", s.handleHealth)
 	mux.HandleFunc("/admin/health/clear", s.handleHealthClear)

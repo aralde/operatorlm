@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/aralde/operatorlm/internal/audit"
+	"github.com/aralde/operatorlm/internal/cassette"
 	"github.com/aralde/operatorlm/internal/providers"
 	"github.com/aralde/operatorlm/internal/router"
 )
@@ -106,7 +107,13 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request, kind providers
 	if s.audit != nil && s.audit.Enabled() {
 		capLimit = s.audit.MaxResponseBody()
 	}
-	cw = &captureWriter{ResponseWriter: w, cap: capLimit}
+	var recorder *recordWriter
+	inner := w
+	if s.cassetteMode() == cassette.ModeRecord {
+		recorder = &recordWriter{ResponseWriter: w}
+		inner = recorder
+	}
+	cw = &captureWriter{ResponseWriter: inner, cap: capLimit}
 	respWriter = cw
 
 	finish := func(status int, errMsg string, attemptID string, upstream *audit.UpstreamInfo) {
@@ -128,13 +135,28 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request, kind providers
 	tried := map[string]bool{} // visited alias names to avoid recursive fallback loops
 	tried[model] = true
 
-	status, errMsg, attemptID, upstream, ok := s.tryDispatch(ctx, respWriter, r, kind, body, model, stream, tried)
-	if !ok && rc.DefaultFallbackAlias != "" && !tried[rc.DefaultFallbackAlias] {
-		log.Printf("dispatch model=%s exhausted, falling back to alias=%s", model, rc.DefaultFallbackAlias)
-		status, errMsg, attemptID, upstream, ok = s.tryDispatch(ctx, respWriter, r, kind, body, rc.DefaultFallbackAlias, stream, tried)
-	}
-	if !ok {
-		http.Error(respWriter, errMsg, status)
+	var (
+		status    int
+		errMsg    string
+		attemptID string
+		upstream  *audit.UpstreamInfo
+		ok        bool
+	)
+	if s.cassetteMode() == cassette.ModeReplay {
+		status, errMsg = s.replayCassette(respWriter, r, body, model, stream)
+		attemptID = "cassette"
+	} else {
+		status, errMsg, attemptID, upstream, ok = s.tryDispatch(ctx, respWriter, r, kind, body, model, stream, tried)
+		if !ok && rc.DefaultFallbackAlias != "" && !tried[rc.DefaultFallbackAlias] {
+			log.Printf("dispatch model=%s exhausted, falling back to alias=%s", model, rc.DefaultFallbackAlias)
+			status, errMsg, attemptID, upstream, ok = s.tryDispatch(ctx, respWriter, r, kind, body, rc.DefaultFallbackAlias, stream, tried)
+		}
+		if !ok {
+			http.Error(respWriter, errMsg, status)
+		}
+		if ok && recorder != nil {
+			s.recordCassette(r, body, model, stream, recorder)
+		}
 	}
 	finish(status, errMsg, attemptID, upstream)
 

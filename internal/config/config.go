@@ -160,6 +160,14 @@ type AuditConfig struct {
 	Redact               bool   `toml:"redact"                   json:"redact"`
 }
 
+// CassetteConfig records upstream responses to Dir (Mode "record") or serves
+// them without contacting any provider (Mode "replay"). Mode "" or "off" disables it.
+type CassetteConfig struct {
+	Mode         string   `toml:"mode,omitempty"          json:"mode,omitempty"`
+	Dir          string   `toml:"dir,omitempty"           json:"dir,omitempty"`
+	IgnoreFields []string `toml:"ignore_fields,omitempty" json:"ignore_fields,omitempty"`
+}
+
 type LocalAuthConfig struct {
 	Enabled bool   `toml:"enabled"          json:"enabled"`
 	KeyRef  string `toml:"key_ref,omitempty" json:"key_ref,omitempty"`
@@ -364,6 +372,7 @@ type Config struct {
 	Audit           AuditConfig       `toml:"audit,omitempty"`
 	Reliability     ReliabilityConfig `toml:"reliability,omitempty"`
 	LocalAuth       LocalAuthConfig   `toml:"local_auth,omitempty"`
+	Cassette        CassetteConfig    `toml:"cassette,omitempty"`
 	LocalModels     LocalModelsConfig `toml:"local_models,omitempty"`
 
 	mu   sync.RWMutex `toml:"-"`
@@ -566,6 +575,30 @@ func (c *Config) SetAudit(a AuditConfig) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.Audit = a
+}
+
+// GetCassette returns the cassette settings; OPERATORLM_CASSETTE_MODE and
+// OPERATORLM_CASSETTE_DIR override the file without being persisted.
+func (c *Config) GetCassette() CassetteConfig {
+	c.mu.RLock()
+	cc := c.Cassette
+	c.mu.RUnlock()
+	if v := os.Getenv("OPERATORLM_CASSETTE_MODE"); v != "" {
+		cc.Mode = v
+	}
+	if v := os.Getenv("OPERATORLM_CASSETTE_DIR"); v != "" {
+		cc.Dir = v
+	}
+	if cc.Dir == "" {
+		cc.Dir = "tests/cassette"
+	}
+	return cc
+}
+
+func (c *Config) SetCassette(cc CassetteConfig) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.Cassette = cc
 }
 
 func (c *Config) GetLocalAuth() LocalAuthConfig {
