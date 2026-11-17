@@ -29,7 +29,7 @@ func TestRewriteMultipartModel(t *testing.T) {
 	// Create a mock multipart body
 	var buf bytes.Buffer
 	mw := multipart.NewWriter(&buf)
-	
+
 	err := mw.WriteField("model", "old-model")
 	if err != nil {
 		t.Fatalf("failed to write field: %v", err)

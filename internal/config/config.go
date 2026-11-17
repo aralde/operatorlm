@@ -19,11 +19,11 @@ type KeySlot struct {
 }
 
 type Provider struct {
-	Name      string    `toml:"name"             json:"name"`
-	Type      string    `toml:"type"             json:"type"`
-	BaseURL   string    `toml:"base_url"         json:"base_url"`
-	Prefix    string    `toml:"prefix"           json:"prefix"`
-	APIKeyRef string    `toml:"api_key_ref"      json:"api_key_ref"`
+	Name      string `toml:"name"             json:"name"`
+	Type      string `toml:"type"             json:"type"`
+	BaseURL   string `toml:"base_url"         json:"base_url"`
+	Prefix    string `toml:"prefix"           json:"prefix"`
+	APIKeyRef string `toml:"api_key_ref"      json:"api_key_ref"`
 	// ApiVersion is the api-version query string used by some upstreams
 	// (currently only azure-openai, where it is required).
 	ApiVersion string    `toml:"api_version,omitempty" json:"api_version,omitempty"`
@@ -83,16 +83,16 @@ type ReliabilityConfig struct {
 	BackoffCapMs  int `toml:"backoff_cap_ms"  json:"backoff_cap_ms"`  // default 10000
 
 	// Circuit breaker
-	OpenAfterFailures   int `toml:"open_after_failures"     json:"open_after_failures"`     // consecutive failures to trip. default 3
-	CooldownRateLimitMs int `toml:"cooldown_rate_limit_ms"  json:"cooldown_rate_limit_ms"`  // 429 cooldown. default 15000
-	CooldownServerMs    int `toml:"cooldown_server_ms"      json:"cooldown_server_ms"`      // 5xx cooldown. default 60000
-	CooldownNetworkMs   int `toml:"cooldown_network_ms"     json:"cooldown_network_ms"`     // network/timeout cooldown. default 90000
+	OpenAfterFailures   int `toml:"open_after_failures"     json:"open_after_failures"`    // consecutive failures to trip. default 3
+	CooldownRateLimitMs int `toml:"cooldown_rate_limit_ms"  json:"cooldown_rate_limit_ms"` // 429 cooldown. default 15000
+	CooldownServerMs    int `toml:"cooldown_server_ms"      json:"cooldown_server_ms"`     // 5xx cooldown. default 60000
+	CooldownNetworkMs   int `toml:"cooldown_network_ms"     json:"cooldown_network_ms"`    // network/timeout cooldown. default 90000
 
 	// Timeouts (all in milliseconds)
-	ConnectTimeoutMs    int `toml:"connect_timeout_ms"      json:"connect_timeout_ms"`      // default 5000
-	PerAttemptTimeoutMs int `toml:"per_attempt_timeout_ms"  json:"per_attempt_timeout_ms"`  // default 60000
-	StreamIdleTimeoutMs int `toml:"stream_idle_timeout_ms"  json:"stream_idle_timeout_ms"`  // default 30000
-	TotalTimeoutMs      int `toml:"total_timeout_ms"        json:"total_timeout_ms"`        // default 180000
+	ConnectTimeoutMs    int `toml:"connect_timeout_ms"      json:"connect_timeout_ms"`     // default 5000
+	PerAttemptTimeoutMs int `toml:"per_attempt_timeout_ms"  json:"per_attempt_timeout_ms"` // default 60000
+	StreamIdleTimeoutMs int `toml:"stream_idle_timeout_ms"  json:"stream_idle_timeout_ms"` // default 30000
+	TotalTimeoutMs      int `toml:"total_timeout_ms"        json:"total_timeout_ms"`       // default 180000
 
 	// Fallback
 	DefaultFallbackAlias string `toml:"default_fallback_alias,omitempty" json:"default_fallback_alias,omitempty"`

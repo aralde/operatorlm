@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"slices"
 	"sync"
 
 	"github.com/aralde/operatorlm/internal/cassette"
@@ -34,7 +35,7 @@ func (s *Server) cassetteStore() *cassette.Store {
 	st := s.cassette
 	st.mu.Lock()
 	defer st.mu.Unlock()
-	if !st.ready || st.cfg.Dir != cc.Dir || st.cfg.Mode != cc.Mode || len(st.cfg.IgnoreFields) != len(cc.IgnoreFields) {
+	if !st.ready || st.cfg.Dir != cc.Dir || st.cfg.Mode != cc.Mode || !slices.Equal(st.cfg.IgnoreFields, cc.IgnoreFields) {
 		if err := st.store.Configure(cc.Dir, cc.IgnoreFields); err != nil {
 			log.Printf("cassette: load %s: %v", cc.Dir, err)
 		}
@@ -80,13 +81,13 @@ func (s *Server) recordCassette(r *http.Request, body []byte, model string, stre
 	if rw.status < 200 || rw.status >= 300 || rw.overflow {
 		return
 	}
-	if err := s.cassetteStore().Record(r.URL.Path, model, stream, body, rw.status, rw.Header().Get("Content-Type"), rw.buf.Bytes()); err != nil {
+	if err := s.cassetteStore().Record(r.URL.Path, model, stream, body, r.Header.Get("Content-Type"), rw.status, rw.Header().Get("Content-Type"), rw.buf.Bytes()); err != nil {
 		log.Printf("cassette: record failed: %v", err)
 	}
 }
 
 func (s *Server) replayCassette(w http.ResponseWriter, r *http.Request, body []byte, model string, stream bool) (int, string) {
-	e, miss := s.cassetteStore().Lookup(r.URL.Path, model, stream, body)
+	e, miss := s.cassetteStore().Lookup(r.URL.Path, model, stream, body, r.Header.Get("Content-Type"))
 	if e == nil {
 		log.Printf("cassette: miss: %s", miss)
 		w.Header().Set("Content-Type", "application/json")

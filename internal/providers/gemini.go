@@ -60,16 +60,16 @@ type oaiTool struct {
 }
 
 type oaiChatReq struct {
-	Model           string          `json:"model"`
-	Messages        []oaiMessage    `json:"messages"`
-	Stream          bool            `json:"stream,omitempty"`
-	Temperature     *float64        `json:"temperature,omitempty"`
-	TopP            *float64        `json:"top_p,omitempty"`
-	MaxTokens       *int            `json:"max_tokens,omitempty"`
-	ReasoningEffort string          `json:"reasoning_effort,omitempty"`
-	Reasoning       *oaiReasoning   `json:"reasoning,omitempty"`
-	Tools           []oaiTool       `json:"tools,omitempty"`
-	ToolChoice      any             `json:"tool_choice,omitempty"`
+	Model           string        `json:"model"`
+	Messages        []oaiMessage  `json:"messages"`
+	Stream          bool          `json:"stream,omitempty"`
+	Temperature     *float64      `json:"temperature,omitempty"`
+	TopP            *float64      `json:"top_p,omitempty"`
+	MaxTokens       *int          `json:"max_tokens,omitempty"`
+	ReasoningEffort string        `json:"reasoning_effort,omitempty"`
+	Reasoning       *oaiReasoning `json:"reasoning,omitempty"`
+	Tools           []oaiTool     `json:"tools,omitempty"`
+	ToolChoice      any           `json:"tool_choice,omitempty"`
 }
 
 type oaiReasoning struct {
@@ -648,7 +648,7 @@ func translateGemToOAI(g *gemResp, model string, streaming bool) map[string]any 
 		payload["reasoning"] = reasoning
 	}
 	choice := map[string]any{
-		"index":    0,
+		"index":   0,
 		choiceKey: payload,
 	}
 	if len(toolCalls) > 0 {

@@ -282,8 +282,8 @@ type sentenceSplitter struct {
 }
 
 const (
-	splitterMinRunes = 2    // ignore "empty" sentences like a stray period
-	splitterMaxBytes = 400  // force a cut on punctuation-free walls of text
+	splitterMinRunes = 2   // ignore "empty" sentences like a stray period
+	splitterMaxBytes = 400 // force a cut on punctuation-free walls of text
 )
 
 func (sp *sentenceSplitter) Feed(delta string) {

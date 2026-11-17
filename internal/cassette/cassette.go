@@ -1,10 +1,14 @@
 package cassette
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
+	"mime"
+	"mime/multipart"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -86,6 +90,7 @@ func (s *Store) Configure(dir string, ignoreFields []string) error {
 		if err := json.Unmarshal(data, &e); err != nil || e.Key == "" {
 			continue
 		}
+		e.leaves = leavesOf(e.Request)
 		s.entries[e.Key] = &e
 	}
 	return nil
@@ -97,7 +102,47 @@ func (s *Store) Len() int {
 	return len(s.entries)
 }
 
-func (s *Store) normalize(body []byte) (norm []byte, isJSON bool) {
+func (s *Store) normalizeMultipart(body []byte, contentType string) ([]byte, bool) {
+	mt, params, err := mime.ParseMediaType(contentType)
+	if err != nil || !strings.HasPrefix(mt, "multipart/") || params["boundary"] == "" {
+		return nil, false
+	}
+	mr := multipart.NewReader(bytes.NewReader(body), params["boundary"])
+	parts := []any{}
+	for {
+		p, err := mr.NextPart()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, false
+		}
+		data, err := io.ReadAll(p)
+		if err != nil {
+			return nil, false
+		}
+		name := p.FormName()
+		if s.ignore[name] {
+			continue
+		}
+		item := map[string]any{"name": name}
+		if fn := p.FileName(); fn != "" {
+			sum := sha256.Sum256(data)
+			item["filename"] = fn
+			item["sha256"] = hex.EncodeToString(sum[:])
+		} else {
+			item["value"] = string(data)
+		}
+		parts = append(parts, item)
+	}
+	out, _ := json.Marshal(s.scrub(map[string]any{"multipart": parts}))
+	return out, true
+}
+
+func (s *Store) normalize(body []byte, contentType string) (norm []byte, isJSON bool) {
+	if out, ok := s.normalizeMultipart(body, contentType); ok {
+		return out, true
+	}
 	var v any
 	if err := json.Unmarshal(body, &v); err != nil {
 		return body, false
@@ -131,8 +176,8 @@ func (s *Store) scrub(v any) any {
 	return v
 }
 
-func (s *Store) keyFor(path, model string, stream bool, body []byte) (key string, norm []byte, isJSON bool) {
-	norm, isJSON = s.normalize(body)
+func (s *Store) keyFor(path, model string, stream bool, body []byte, reqContentType string) (key string, norm []byte, isJSON bool) {
+	norm, isJSON = s.normalize(body, reqContentType)
 	h := sha256.New()
 	fmt.Fprintf(h, "%s\x00%s\x00%t\x00", path, model, stream)
 	h.Write(norm)
@@ -140,13 +185,13 @@ func (s *Store) keyFor(path, model string, stream bool, body []byte) (key string
 }
 
 // Record stores a response; an identical normalised request overwrites the previous one.
-func (s *Store) Record(path, model string, stream bool, body []byte, status int, contentType string, response []byte) error {
+func (s *Store) Record(path, model string, stream bool, body []byte, reqContentType string, status int, contentType string, response []byte) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.dir == "" {
 		return fmt.Errorf("cassette directory not configured")
 	}
-	key, norm, isJSON := s.keyFor(path, model, stream, body)
+	key, norm, isJSON := s.keyFor(path, model, stream, body, reqContentType)
 	e := &Entry{
 		Key: key, RecordedAt: time.Now().UTC(), Path: path, Model: model, Stream: stream,
 		Status: status, ContentType: contentType, Response: string(response),
@@ -167,6 +212,7 @@ func (s *Store) Record(path, model string, stream bool, body []byte, status int,
 	if err := os.WriteFile(filepath.Join(s.dir, name), data, 0o644); err != nil {
 		return err
 	}
+	e.leaves = leavesOf(e.Request)
 	s.entries[key] = e
 	return nil
 }
@@ -185,10 +231,10 @@ func sanitize(s string) string {
 }
 
 // Lookup returns the recorded entry, or a human-readable description of the closest miss.
-func (s *Store) Lookup(path, model string, stream bool, body []byte) (*Entry, string) {
+func (s *Store) Lookup(path, model string, stream bool, body []byte, reqContentType string) (*Entry, string) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	key, norm, isJSON := s.keyFor(path, model, stream, body)
+	key, norm, isJSON := s.keyFor(path, model, stream, body, reqContentType)
 	if e, ok := s.entries[key]; ok {
 		return e, ""
 	}
@@ -242,9 +288,6 @@ func (s *Store) closestMiss(key, path, model string, stream bool, norm []byte, i
 		e := s.entries[k]
 		if e.Path != path {
 			continue
-		}
-		if e.leaves == nil {
-			e.leaves = leavesOf(e.Request)
 		}
 		inter := 0
 		for l := range want {

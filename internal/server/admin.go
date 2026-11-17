@@ -364,7 +364,9 @@ func (s *Server) handleHealthClear(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	var p struct{ ID string `json:"id"` }
+	var p struct {
+		ID string `json:"id"`
+	}
 	if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -381,9 +383,9 @@ func (s *Server) handleHealthClear(w http.ResponseWriter, r *http.Request) {
 
 type auditStatus struct {
 	config.AuditConfig
-	Written  int64  `json:"written"`
-	Dropped  int64  `json:"dropped"`
-	Active   bool   `json:"active"`
+	Written   int64  `json:"written"`
+	Dropped   int64  `json:"dropped"`
+	Active    bool   `json:"active"`
 	Effective string `json:"effective_path"`
 }
 
@@ -519,10 +521,10 @@ func (s *Server) handleLocalAuth(w http.ResponseWriter, r *http.Request) {
 }
 
 var providerDefaults = map[string]config.Provider{
-	"openai":     {BaseURL: "https://api.openai.com/v1", Prefix: "openai/"},
-	"openrouter": {BaseURL: "https://openrouter.ai/api/v1", Prefix: "openrouter/"},
-	"groq":       {BaseURL: "https://api.groq.com/openai/v1", Prefix: "groq/"},
-	"gemini":     {BaseURL: "https://generativelanguage.googleapis.com/v1beta", Prefix: "gemini/"},
+	"openai":       {BaseURL: "https://api.openai.com/v1", Prefix: "openai/"},
+	"openrouter":   {BaseURL: "https://openrouter.ai/api/v1", Prefix: "openrouter/"},
+	"groq":         {BaseURL: "https://api.groq.com/openai/v1", Prefix: "groq/"},
+	"gemini":       {BaseURL: "https://generativelanguage.googleapis.com/v1beta", Prefix: "gemini/"},
 	"nvidia-nim":   {BaseURL: "https://integrate.api.nvidia.com/v1", Prefix: "nvidia/"},
 	"opencode-zen": {BaseURL: "https://opencode.ai/zen/v1", Prefix: "zen/"},
 	"mistral":      {BaseURL: "https://api.mistral.ai/v1", Prefix: "mistral/"},

@@ -256,9 +256,9 @@ func translateAnthropicStreamToOAI(w http.ResponseWriter, body io.Reader, model 
 		}
 
 		var event struct {
-			Type         string `json:"type"`
-			Index        int    `json:"index"`
-			Message      *struct {
+			Type    string `json:"type"`
+			Index   int    `json:"index"`
+			Message *struct {
 				ID    string `json:"id"`
 				Model string `json:"model"`
 				Usage *struct {
@@ -482,15 +482,15 @@ func TranslateOpenAIResponseToAnthropic(oaiBody []byte) ([]byte, error) {
 // AnthropicStreamTranslator wraps an http.ResponseWriter that accepts OpenAI SSE chunks,
 // parses them, and writes translated Anthropic SSE events to the wrapped writer.
 type AnthropicStreamTranslator struct {
-	w                 http.ResponseWriter
-	flusher           http.Flusher
-	sentMessageStart  bool
-	sentContentStart  bool
-	streamID          string
-	model             string
-	inputTokens       int
-	outputTokens      int
-	lineBuf           bytes.Buffer
+	w                http.ResponseWriter
+	flusher          http.Flusher
+	sentMessageStart bool
+	sentContentStart bool
+	streamID         string
+	model            string
+	inputTokens      int
+	outputTokens     int
+	lineBuf          bytes.Buffer
 }
 
 func NewAnthropicStreamTranslator(w http.ResponseWriter) *AnthropicStreamTranslator {
@@ -548,7 +548,7 @@ func (t *AnthropicStreamTranslator) Write(p []byte) (int, error) {
 			ID      string `json:"id"`
 			Model   string `json:"model"`
 			Choices []struct {
-				Index        int `json:"index"`
+				Index        int            `json:"index"`
 				Delta        map[string]any `json:"delta"`
 				FinishReason string         `json:"finish_reason"`
 			} `json:"choices"`
