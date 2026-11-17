@@ -640,6 +640,20 @@
         </div>
 
         <div class="card">
+          <div class="card-head"><h2>Export &amp; open</h2></div>
+          <div class="form">
+            <div class="field">
+              <label>Scope <span class="help-pop" data-help="A session is the records of one client connection. Pick one, or export the whole log. The full audit record format is kept, so ThreadlineLM detects it.">?</span></label>
+              <select id="audit-session"><option value="">Whole log</option></select>
+            </div>
+            <div class="audit-actions">
+              <a class="btn-secondary" id="audit-export" href="/admin/audit/export" download>Export NDJSON</a>
+              <button type="button" class="btn-primary" id="audit-open">Open in ThreadlineLM</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
           <div class="card-head"><h2>Settings</h2></div>
           <form id="audit-form" autocomplete="off" class="form">
             <div class="field">

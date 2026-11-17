@@ -1727,6 +1727,41 @@ async function loadAudit() {
   }
 }
 
+const auditSession = $('#audit-session');
+const auditExport  = $('#audit-export');
+
+function auditScope() {
+  return auditSession.value ? '?client=' + encodeURIComponent(auditSession.value) : '';
+}
+
+async function loadAuditSessions() {
+  try {
+    const list = await api('GET', '/admin/audit/sessions');
+    const current = auditSession.value;
+    auditSession.innerHTML = '';
+    auditSession.add(new Option('Whole log', ''));
+    for (const s of list || []) {
+      const when = new Date(s.last).toLocaleString();
+      const label = `${s.client}${s.ua ? ' · ' + s.ua : ''} · ${s.records} req · ${when}`;
+      auditSession.add(new Option(label, s.client));
+    }
+    auditSession.value = current;
+  } catch (_) {}
+}
+
+auditSession.addEventListener('change', () => {
+  auditExport.href = '/admin/audit/export' + auditScope();
+});
+
+$('#audit-open').addEventListener('click', async () => {
+  try {
+    await api('POST', '/admin/audit/open' + auditScope());
+    toast('Opened in ThreadlineLM', 'success');
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+});
+
 auditForm.addEventListener('submit', async e => {
   e.preventDefault();
   const fd = new FormData(auditForm);
@@ -1747,6 +1782,7 @@ auditForm.addEventListener('submit', async e => {
   }
 });
 setInterval(loadAudit, 5000);
+setInterval(loadAuditSessions, 15000);
 
 // ─────────────────────────────────────────────────────────────
 //  Local auth tab
@@ -2686,6 +2722,7 @@ async function loadAll() {
 
 loadAll().then(() => loadReliability());
 loadAudit();
+loadAuditSessions();
 loadLocalAuth();
 loadLocalModels();
 loadHealth();
