@@ -28,10 +28,10 @@ func (s BreakerState) String() string {
 
 // BreakerConfig controls when a target trips and how long it stays open.
 type BreakerConfig struct {
-	OpenAfterFailures   int           // consecutive failures before tripping closed → open
-	CooldownRateLimit   time.Duration // applied for ClassRateLimit
-	CooldownServer      time.Duration // applied for ClassServer
-	CooldownNetwork     time.Duration // applied for ClassNetwork
+	OpenAfterFailures int           // consecutive failures before tripping closed → open
+	CooldownRateLimit time.Duration // applied for ClassRateLimit
+	CooldownServer    time.Duration // applied for ClassServer
+	CooldownNetwork   time.Duration // applied for ClassNetwork
 }
 
 // Breaker is a per-target circuit breaker with three states (closed / open /

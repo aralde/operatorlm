@@ -979,7 +979,7 @@ func addWavHeader(pcm []byte, sampleRate int) []byte {
 	blockAlign := numChannels * bitsPerSample / 8
 
 	buf := make([]byte, 44+subchunk2Size)
-	
+
 	copy(buf[0:4], "RIFF")
 	binary.LittleEndian.PutUint32(buf[4:8], uint32(chunkSize))
 	copy(buf[8:12], "WAVE")
@@ -994,6 +994,6 @@ func addWavHeader(pcm []byte, sampleRate int) []byte {
 	copy(buf[36:40], "data")
 	binary.LittleEndian.PutUint32(buf[40:44], uint32(subchunk2Size))
 	copy(buf[44:], pcm)
-	
+
 	return buf
 }

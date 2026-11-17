@@ -50,10 +50,10 @@ type Record struct {
 // Options control logger behaviour. Sensible defaults are applied for zero values.
 type Options struct {
 	Path                 string
-	BufferSize           int   // default 1024
-	MaxRequestBodyBytes  int   // default 64 KiB
-	MaxResponseBodyBytes int   // default 1 MiB
-	Redact               bool  // default true
+	BufferSize           int  // default 1024
+	MaxRequestBodyBytes  int  // default 64 KiB
+	MaxResponseBodyBytes int  // default 1 MiB
+	Redact               bool // default true
 }
 
 func (o *Options) defaults() {
@@ -69,14 +69,14 @@ func (o *Options) defaults() {
 }
 
 type Logger struct {
-	mu       sync.RWMutex
-	ch       chan Record
-	file     *os.File
-	enabled  bool
-	opts     Options
-	dropped  atomic.Int64
-	written  atomic.Int64
-	done     chan struct{}
+	mu      sync.RWMutex
+	ch      chan Record
+	file    *os.File
+	enabled bool
+	opts    Options
+	dropped atomic.Int64
+	written atomic.Int64
+	done    chan struct{}
 }
 
 // New creates a new logger. enabled=false returns a no-op logger that
@@ -275,13 +275,13 @@ func (l *Logger) run(ch chan Record, f *os.File, done chan struct{}) {
 // --- helpers for redaction ---
 
 var sensitiveHeaders = map[string]bool{
-	"authorization":   true,
-	"x-api-key":       true,
-	"x-goog-api-key":  true,
-	"openai-api-key":  true,
+	"authorization":     true,
+	"x-api-key":         true,
+	"x-goog-api-key":    true,
+	"openai-api-key":    true,
 	"anthropic-api-key": true,
-	"cookie":          true,
-	"set-cookie":      true,
+	"cookie":            true,
+	"set-cookie":        true,
 }
 
 func RedactHeaders(h http.Header, redact bool) map[string]string {

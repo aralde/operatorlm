@@ -157,23 +157,23 @@ func makePNG() []byte {
 func wrapICO(pngData []byte, dim int) []byte {
 	var buf bytes.Buffer
 	// ICONDIR
-	binary.Write(&buf, binary.LittleEndian, uint16(0))    // reserved
-	binary.Write(&buf, binary.LittleEndian, uint16(1))    // type: icon
-	binary.Write(&buf, binary.LittleEndian, uint16(1))    // count
+	binary.Write(&buf, binary.LittleEndian, uint16(0)) // reserved
+	binary.Write(&buf, binary.LittleEndian, uint16(1)) // type: icon
+	binary.Write(&buf, binary.LittleEndian, uint16(1)) // count
 
 	d := byte(dim)
 	if dim >= 256 {
 		d = 0
 	}
 	// ICONDIRENTRY (16 bytes)
-	buf.WriteByte(d)                                                 // width
-	buf.WriteByte(d)                                                 // height
-	buf.WriteByte(0)                                                 // colors in palette
-	buf.WriteByte(0)                                                 // reserved
-	binary.Write(&buf, binary.LittleEndian, uint16(1))               // color planes
-	binary.Write(&buf, binary.LittleEndian, uint16(32))              // bits per pixel
-	binary.Write(&buf, binary.LittleEndian, uint32(len(pngData)))    // image size
-	binary.Write(&buf, binary.LittleEndian, uint32(6+16))            // offset of image data
+	buf.WriteByte(d)                                              // width
+	buf.WriteByte(d)                                              // height
+	buf.WriteByte(0)                                              // colors in palette
+	buf.WriteByte(0)                                              // reserved
+	binary.Write(&buf, binary.LittleEndian, uint16(1))            // color planes
+	binary.Write(&buf, binary.LittleEndian, uint16(32))           // bits per pixel
+	binary.Write(&buf, binary.LittleEndian, uint32(len(pngData))) // image size
+	binary.Write(&buf, binary.LittleEndian, uint32(6+16))         // offset of image data
 
 	buf.Write(pngData)
 	return buf.Bytes()

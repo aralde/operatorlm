@@ -70,7 +70,7 @@ func (r *Router) Reconfigure(rc config.ReliabilityConfig) {
 }
 
 func (r *Router) RateLimiter() *RateLimiter { return r.rl }
-func (r *Router) Breaker() *Breaker          { return r.breaker }
+func (r *Router) Breaker() *Breaker         { return r.breaker }
 
 func (r *Router) Policy() RetryPolicy {
 	r.mu.RLock()
