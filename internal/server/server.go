@@ -89,6 +89,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/admin/reliability", s.handleReliability)
 	mux.HandleFunc("/admin/health", s.handleHealth)
 	mux.HandleFunc("/admin/health/clear", s.handleHealthClear)
+	mux.HandleFunc("/admin/usage", s.handleUsage)
 	mux.HandleFunc("/admin/auth/chatgpt/start", s.handleChatGPTAuthStart)
 	mux.HandleFunc("/admin/auth/chatgpt/status", s.handleChatGPTAuthStatus)
 	mux.HandleFunc("/admin/localauth", s.handleLocalAuth)

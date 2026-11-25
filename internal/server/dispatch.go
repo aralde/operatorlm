@@ -338,8 +338,18 @@ func (s *Server) runOnce(
 		return resp.StatusCode, b, class, upstream, true
 	}
 
+	var uw *usageWriter
+	if kind == providers.KindChat || kind == providers.KindResponses {
+		uw = &usageWriter{ResponseWriter: w, stream: stream}
+		w = uw
+	}
 	if writeErr := prov.WriteResponse(w, resp, kind, att.UpstreamModel, stream); writeErr != nil {
 		log.Printf("dispatch attempt=%s write error: %v", att.ID(), writeErr)
+	}
+	if uw != nil {
+		if prompt, completion, found := uw.result(); found {
+			s.rt.Usage().Record(att, prompt, completion)
+		}
 	}
 	return resp.StatusCode, nil, router.ClassOK, upstream, true
 }
