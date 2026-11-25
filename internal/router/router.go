@@ -39,13 +39,14 @@ type Router struct {
 	cfg     *config.Config
 	rl      *RateLimiter
 	breaker *Breaker
+	usage   *Usage
 
 	mu     sync.RWMutex
 	policy RetryPolicy
 }
 
 func New(cfg *config.Config) *Router {
-	r := &Router{cfg: cfg, rl: NewRateLimiter()}
+	r := &Router{cfg: cfg, rl: NewRateLimiter(), usage: NewUsage()}
 	r.breaker = NewBreaker(BreakerConfig{}) // configured below
 	r.Reconfigure(cfg.GetReliability())
 	return r
@@ -71,6 +72,7 @@ func (r *Router) Reconfigure(rc config.ReliabilityConfig) {
 
 func (r *Router) RateLimiter() *RateLimiter { return r.rl }
 func (r *Router) Breaker() *Breaker         { return r.breaker }
+func (r *Router) Usage() *Usage             { return r.usage }
 
 func (r *Router) Policy() RetryPolicy {
 	r.mu.RLock()
