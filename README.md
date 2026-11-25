@@ -216,6 +216,8 @@ Send `model: "fast-llama"` — get Groq when available, OpenRouter when it isn't
 
 All of these are tunable live from the **Reliability** tab in the admin UI — no restart needed.
 
+The same tab shows **token usage** per alias and per target: prompt and completion tokens read from the `usage` block of chat, messages and responses replies (including the final stream chunk). The counters live in memory only and reset on restart; `GET /admin/usage` returns them as JSON.
+
 ---
 
 ## 🖥️ Run models locally (chat, vision, embeddings, speech)

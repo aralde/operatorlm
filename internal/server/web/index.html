@@ -586,6 +586,32 @@
 
         <div class="card">
           <div class="card-head">
+            <h2>Token usage</h2>
+            <div class="actions">
+              <span class="muted small">Since start, in memory only</span>
+            </div>
+          </div>
+          <div id="usage-empty" class="empty">
+            <div class="empty-icon" aria-hidden="true">⌁</div>
+            <p>No token usage recorded yet. Counts appear after replies that report usage.</p>
+          </div>
+          <div class="table-wrap" id="usage-table-wrap" hidden>
+            <table id="usage-table">
+              <thead>
+                <tr>
+                  <th>Alias / target</th>
+                  <th>Requests</th>
+                  <th>Prompt tokens</th>
+                  <th>Completion tokens</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
             <h2>Recent requests (Last 20)</h2>
           </div>
           <div id="recent-empty" class="empty">

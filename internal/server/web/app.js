@@ -1602,6 +1602,7 @@ async function loadHealth() {
         try {
           await api('POST', '/admin/health/clear', { id: btn.dataset.clear });
           loadHealth();
+loadUsage();
           toast('Breaker reset', 'success');
         } catch (e) { toast(e.message, 'error'); }
       };
@@ -1692,7 +1693,34 @@ function openRequestDetailDialog(req) {
     reqDetailDialog.setAttribute('open', '');
   }
 }
+async function loadUsage() {
+  try {
+    const r = await api('GET', '/admin/usage');
+    const aliases = r.aliases || [];
+    const targets = r.targets || [];
+    const tbody = $('#usage-table tbody');
+    $('#usage-empty').hidden = aliases.length > 0;
+    $('#usage-table-wrap').hidden = aliases.length === 0;
+    const n = v => Number(v || 0).toLocaleString();
+    const rows = [];
+    for (const a of aliases) {
+      const label = a.alias ? `<strong>${escHtml(a.alias)}</strong>` : '<span class="muted">direct (no alias)</span>';
+      rows.push(`<tr><td>${label}</td><td>${n(a.requests)}</td><td>${n(a.prompt_tokens)}</td><td>${n(a.completion_tokens)}</td></tr>`);
+      for (const t of targets.filter(t => t.alias === a.alias)) {
+        const name = `${t.provider}/${t.key}/${t.upstream_model}`;
+        rows.push(`<tr><td class="muted small">&nbsp;&nbsp;↳ <code>${escHtml(name)}</code></td>` +
+          `<td class="muted small">${n(t.requests)}</td><td class="muted small">${n(t.prompt_tokens)}</td>` +
+          `<td class="muted small">${n(t.completion_tokens)}</td></tr>`);
+      }
+    }
+    tbody.innerHTML = rows.join('');
+  } catch (e) {
+    console.error('usage load failed', e);
+  }
+}
+
 setInterval(loadHealth, 3000);
+setInterval(loadUsage, 3000);
 
 // ─────────────────────────────────────────────────────────────
 //  Audit tab
@@ -2726,3 +2754,4 @@ loadAuditSessions();
 loadLocalAuth();
 loadLocalModels();
 loadHealth();
+loadUsage();
